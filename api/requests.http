@@ -1,0 +1,73 @@
+@baseUrl = http://127.0.0.1:8080
+@accessToken = paste-access-token-here
+@refreshToken = paste-refresh-token-here
+
+### Liveness
+GET {{baseUrl}}/healthz
+
+### Readiness (MySQL required)
+GET {{baseUrl}}/readyz
+
+### Register your own account
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: application/json
+
+{"username":"researcher","password":"choose-your-own-password"}
+
+### Login
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{"username":"researcher","password":"choose-your-own-password"}
+
+### Current user
+GET {{baseUrl}}/api/v1/auth/me
+Authorization: Bearer {{accessToken}}
+
+### Assets
+GET {{baseUrl}}/api/v1/assets
+Authorization: Bearer {{accessToken}}
+
+### Historical trends (half-open interval, no resampling)
+GET {{baseUrl}}/api/v1/trends?asset_id=usdc-ethereum&from=2023-02-01T00:00:00Z&to=2023-02-02T00:00:00Z&interval=1m&limit=500
+Authorization: Bearer {{accessToken}}
+
+### Imported CoinGecko daily observations (not OHLC)
+GET {{baseUrl}}/api/v1/market-snapshots?asset_id=coingecko.usd-coin&from=2023-03-01T00:00:00Z&to=2023-04-01T00:00:00Z&limit=500
+Authorization: Bearer {{accessToken}}
+
+### Imported hourly candles (time is open time; source_time is close time)
+GET {{baseUrl}}/api/v1/trends?asset_id=coingecko.a7a5&from=2026-09-01T00:00:00Z&to=2026-09-02T00:00:00Z&interval=1h&limit=500
+Authorization: Bearer {{accessToken}}
+
+### Rotate refresh token (old access and refresh become invalid)
+POST {{baseUrl}}/api/v1/auth/refresh
+Content-Type: application/json
+
+{"refresh_token":"{{refreshToken}}"}
+
+### Logout
+POST {{baseUrl}}/api/v1/auth/logout
+Authorization: Bearer {{accessToken}}
+### 网站总览（使用上方登录得到的 access token）
+GET {{baseUrl}}/api/v1/dashboard
+Authorization: Bearer {{accessToken}}
+
+### 保存当前账号的 USDC 日快照阈值（锚定价需按币种确认）
+POST {{baseUrl}}/api/v1/monitor/rules
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{"asset_id":"coingecko.usd-coin","kind":"daily","source":"coingecko:market-chart","interval_seconds":86400,"anchor_price":"1","warning_bps":50,"critical_bps":100}
+
+### 检测历史区间；将 rule_version 替换为保存规则返回的 version
+POST {{baseUrl}}/api/v1/monitor/replay
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{"asset_id":"coingecko.usd-coin","from":"2023-03-09T00:00:00Z","to":"2023-03-16T00:00:00Z","rule_version":"replace-with-saved-rule-version"}
+
+### 当前账号的 USDC 阈值命中记录
+GET {{baseUrl}}/api/v1/monitor/events?asset_id=coingecko.usd-coin&limit=50
+Authorization: Bearer {{accessToken}}
+

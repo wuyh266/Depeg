@@ -1,0 +1,3 @@
+-- Automatic destructive rollback is intentionally unavailable.
+-- Restore from a reviewed backup or write a separately reviewed rollback.
+-- This file is never executed by cmd/migrate.

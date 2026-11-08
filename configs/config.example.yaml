@@ -1,0 +1,24 @@
+# Optional: copy to configs/config.yaml. Environment values override this file.
+# Redis, Python and worker settings are intentionally absent in this phase.
+http:
+  address: "127.0.0.1:8080"
+  read_timeout: 10s
+  write_timeout: 15s
+  idle_timeout: 60s
+  shutdown_timeout: 15s
+  allowed_origins:
+    - "http://localhost:5173"
+    - "http://127.0.0.1:5173"
+mysql:
+  dsn: "${MYSQL_DSN}"
+  max_open_conns: 20
+  max_idle_conns: 5
+  conn_max_lifetime: 30m
+jwt:
+  issuer: "${JWT_ISSUER}"
+  audience: "${JWT_AUDIENCE}"
+  signing_key: "${JWT_SIGNING_KEY}"
+  access_ttl: 15m
+  refresh_ttl: 168h
+log:
+  level: info

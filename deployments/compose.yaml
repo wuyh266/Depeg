@@ -1,0 +1,22 @@
+# Optional local MySQL only. No Redis or distributed scheduler in this phase.
+name: depeg-platform
+services:
+  mysql:
+    image: ${MYSQL_IMAGE:?Set MYSQL_IMAGE to a verified MySQL 8.0+ image digest}
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-depeg}
+      MYSQL_USER: ${MYSQL_USER:-depeg}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysql --protocol=tcp -h127.0.0.1 -uroot --execute='SELECT 1' >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+volumes:
+  mysql-data:
