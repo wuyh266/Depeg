@@ -22,7 +22,13 @@ func (r *datasetRepository) Import(ctx context.Context, write func(port.DatasetS
 	if write == nil {
 		return domain.ErrInvalid
 	}
-	return r.database.Transaction(ctx, func(tx Database) error { return write(&datasetSink{database: tx}) })
+	return r.database.Transaction(ctx, func(database Database) error {
+		if err := write(&datasetSink{database: database}); err != nil {
+			return err
+		}
+
+		return bumpAssetVersion(ctx, database)
+	})
 }
 
 func (s *datasetSink) Write(ctx context.Context, batch dataset.Batch) error {

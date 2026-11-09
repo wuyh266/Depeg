@@ -29,12 +29,28 @@ func (s *service) ListAssets(ctx context.Context) ([]entity.Asset, error) {
 	if err:=ctx.Err(); err != nil {
 		return nil, err
 	}
-	if s.assetCache != nil {
+	var assetVersion uint64
+	useCache := s.assetCache != nil
+
+	if useCache {
+		currentVersion, err := s.repository.AssetVersion(ctx)
+		if err != nil {
+			useCache = false
+			if s.logger != nil {
+				s.logger.Error(ctx, "failed to read asset version; bypassing cache", "error", err)
+			}
+		} else {
+			assetVersion = currentVersion
+		}
+	}
+	if useCache {
 		readctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
-		assets, found, err := s.assetCache.GetAsset(readctx)
+		assets, found, err := s.assetCache.GetAsset(readctx,assetVersion)
 		cancel()
 		if err != nil {
-			s.logger.Error(ctx,"failed to get asset cache", "error", err)
+			if s.logger != nil {
+				s.logger.Error(ctx, "failed to get asset cache", "error", err)
+			}
 		} else if found {
 			if s.logger != nil {
 				s.logger.Info(ctx,"asset cache hit")
@@ -52,11 +68,11 @@ func (s *service) ListAssets(ctx context.Context) ([]entity.Asset, error) {
 	if err != nil {
 		return nil, err
 	}
-	if s.assetCache != nil {
+	if useCache {
 		writectx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
-		err := s.assetCache.SetAsset(writectx, assets, 60*time.Second); 
+		err := s.assetCache.SetAsset(writectx, assetVersion, assets, 60*time.Second)
 		cancel()
-		if err != nil {
+		if err != nil && s.logger!=nil{
 			s.logger.Error(ctx,"failed to set asset cache", "error", err)
 		}
 	}

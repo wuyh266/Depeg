@@ -114,6 +114,10 @@ func (r *marketRepository) Import(ctx context.Context, a market.Asset, candles [
 		if err := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoUpdates: clause.AssignmentColumns([]string{"symbol", "chain", "token_address", "quote_currency", "anchor_price", "updated_at"})}).Create(&row).Error; err != nil {
 			return translate(err)
 		}
-		return NewMarketRepository(database).UpsertCandles(ctx, candles)
+		if err := NewMarketRepository(database).UpsertCandles(ctx, candles); err != nil {
+			return err
+		}
+
+		return bumpAssetVersion(ctx, database)
 	})
 }

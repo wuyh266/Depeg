@@ -81,19 +81,7 @@ func run(ctx context.Context, factory bootstrap.Factory) error {
 		return err
 	}
 
-	rdb,err := factory.Redis(settings.Redis, logger)
-	if err != nil {
-		logger.Error(ctx,"Redis is unavailable; check REDIS_DSN and the Redis service", "error", err)
-	}else{
-		defer rdb.Close()
-		assetCache:=factory.AssetCache(rdb)
-		invalidatectx,cancel:=context.WithTimeout(ctx,100*time.Millisecond)
-		err:=assetCache.InvalidateAsset(invalidatectx)
-		cancel()
-		if err!=nil{
-			logger.Error(ctx,"asset import committed, but cache invalidation failed","error",err)
-		}
-	}
+	
 
 	fmt.Printf("Processed %d historical candles for %s; duplicate source/time records were updated\n", len(candles), asset.ID)
 	return nil

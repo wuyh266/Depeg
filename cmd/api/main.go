@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+
+	"depeg.local/platform/internal/port"
 )
 
 func main() {
@@ -33,13 +35,19 @@ func run(ctx context.Context, factory bootstrap.Factory) error {
 		return fmt.Errorf("MySQL is unavailable; check MYSQL_DSN and the database service")
 	}
 
-	rdb, err := factory.Redis(settings.Redis,logger)
-	if err != nil {
-		logger.Error(ctx,"failed to connect to redis", "error", err)
-		return fmt.Errorf("failed to connect to redis: %w", err)
+	var assetCache port.AssetCache
+
+	if settings.Redis.Address != "" {
+		redisClient, err := factory.Redis(settings.Redis, logger)
+		if err != nil {
+			if logger != nil {
+				logger.Error(ctx, "Redis initialization failed; using MySQL", "error", err)
+			}
+		} else {
+			defer redisClient.Close()
+			assetCache = factory.AssetCache(redisClient)
+		}
 	}
-	defer rdb.Close()
-	assetCache := factory.AssetCache(rdb)
 	users := factory.Users(database)
 	markets := factory.MarketRepository(database)
 	risks := factory.RiskRepository(database)

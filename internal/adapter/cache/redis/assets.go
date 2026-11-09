@@ -1,10 +1,12 @@
 package redis
+
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
+
 	"depeg.local/platform/internal/domain/market"
 	"depeg.local/platform/internal/port"
 
@@ -23,9 +25,11 @@ type assetCache struct {
 func NewAssetCache(client port.RedisClient) *assetCache {
 	return &assetCache{client: client}
 }
-const assetCacheKey = "depeg:dev:v1:assets"
-func (a *assetCache) GetAsset(ctx context.Context) (assets []market.Asset, found bool, err error) {
-	data, err := a.client.Get(ctx, assetCacheKey)
+func assetCacheKey(version uint64) string {
+	return fmt.Sprintf("depeg:dev:v1:assets:%d", version)
+}
+func (a *assetCache) GetAsset(ctx context.Context,version uint64) (assets []market.Asset, found bool, err error) {
+	data, err := a.client.Get(ctx, assetCacheKey(version))
 	if errors.Is(err, redis.Nil) {
 		return nil, false, nil
 	}
@@ -35,16 +39,30 @@ func (a *assetCache) GetAsset(ctx context.Context) (assets []market.Asset, found
 	if err := json.Unmarshal(data, &assets); err != nil {
 		return nil, false, fmt.Errorf("unmarshal asset cache: %w", err)
 	}
+
+	if assets == nil {
+		return nil, false, fmt.Errorf("asset cache must contain an array")
+	}
+
+	return assets, true, nil
 	
-	return assets, true, err
 }
-func (a *assetCache) SetAsset(ctx context.Context, assets []market.Asset, TTL time.Duration) error {
+func (cache *assetCache) SetAsset(ctx context.Context,version uint64,assets []market.Asset,ttl time.Duration,) error {
+	if ttl <= 0 {
+		return fmt.Errorf("asset cache TTL must be positive")
+	}
+
+	if assets == nil {
+		assets = []market.Asset{}
+	}
+
 	data, err := json.Marshal(assets)
 	if err != nil {
 		return fmt.Errorf("marshal asset cache: %w", err)
 	}
-	return a.client.Set(ctx, assetCacheKey, data, TTL)
+
+	return cache.client.Set(ctx, assetCacheKey(version), data, ttl)
 }
-func (a *assetCache) InvalidateAsset(ctx context.Context) error {
-	return a.client.Delete(ctx, assetCacheKey)
+func (a *assetCache) InvalidateAsset(ctx context.Context,version uint64) error {
+	return a.client.Delete(ctx, assetCacheKey(version))
 }

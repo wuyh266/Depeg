@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	
 
 	"depeg.local/platform/internal/bootstrap"
 	"depeg.local/platform/internal/domain/dataset"
@@ -77,6 +78,7 @@ func run(ctx context.Context, factory bootstrap.Factory, args []string, out io.W
 			return fmt.Errorf("import rolled back (check that cmd/migrate succeeded): %w", err)
 		}
 		report.Mode = "imported"
+		
 	}
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")

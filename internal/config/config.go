@@ -80,6 +80,7 @@ func (*loader) Load(ctx context.Context) (Settings, error) {
 		MySQL: MySQL{MaxOpenConns: 20, MaxIdleConns: 5, ConnMaxLifetime: 30 * time.Minute},
 		JWT:   JWT{Issuer: "depeg-platform", Audience: "depeg-web", AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour},
 		Log:   Log{Level: "info"},
+		Redis: Redis{Timeout: 300*time.Millisecond},
 	}
 	values := map[string]string{}
 	envFile := os.Getenv("ENV_FILE")
@@ -161,6 +162,25 @@ func (*loader) Load(ctx context.Context) (Settings, error) {
 	override("JWT_AUDIENCE", &settings.JWT.Audience)
 	override("JWT_SIGNING_KEY", &settings.JWT.SigningKey)
 	override("LOG_LEVEL", &settings.Log.Level)
+	override("REDIS_ADDRESS", &settings.Redis.Address)
+	override("REDIS_USERNAME", &settings.Redis.Username)
+	override("REDIS_PASSWORD", &settings.Redis.Password)
+
+	if value := lookup("REDIS_DATABASE"); value != "" {
+		database, err := strconv.Atoi(value)
+		if err != nil || database < 0 {
+			return Settings{}, fmt.Errorf("REDIS_DATABASE must be a nonnegative integer")
+		}
+		settings.Redis.Database = database
+	}
+
+	if value := lookup("REDIS_TIMEOUT"); value != "" {
+		timeout, err := time.ParseDuration(value)
+		if err != nil || timeout <= 0 {
+			return Settings{}, fmt.Errorf("REDIS_TIMEOUT must be a positive duration")
+		}
+		settings.Redis.Timeout = timeout
+	}
 	if value := lookup("ALLOWED_ORIGINS"); value != "" {
 		settings.HTTP.AllowedOrigins = strings.Split(value, ",")
 	}
