@@ -10,7 +10,7 @@ import (
 )
 
 // TODO: Add a versioned HTTP gateway around the existing Python pipeline.
-// The supplied Python project currently has scripts, not these HTTP endpoints.
+// Offline JSON handoff is supported by DecodeResult; HTTP endpoints are not yet deployed.
 type client struct {
 	settings config.Python
 	logger   port.Logger
