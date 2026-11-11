@@ -1,5 +1,7 @@
 # Depeg Platform · 稳定币观察台
 
+DG Transformer 已补充离线 JSON 交付校验命令，见 [模型联调说明](docs/dg-inference-handoff.md)。真实模型验收和网站风险服务接入仍待完成。
+
 当前版本包含由 Go 服务直接提供的网页、Gin + GORM 后端、JWT 登录、MySQL 行情查询，以及按账号保存的监测阈值和历史检测记录。MySQL 连接信息在本地 .env 中配置。启动网站无需 Node.js 或独立前端服务。
 
 已实现：配置读取、结构化日志、HTTP 启动与关闭、注册/登录、JWT 验证、MySQL 会话持久化、刷新轮换/登出、稳定币列表、历史趋势查询、CSV 校验/事务导入、显式数据库迁移。
