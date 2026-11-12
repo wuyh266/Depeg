@@ -15,7 +15,7 @@ const amount = value => value===null||value===undefined ? '—' : '$'+compact.fo
 const bps = value => value===null||value===undefined ? '—' : (Number(value)>0?'+':'')+num.format(Number(value))+' bps';
 const labels = {stable:'阈值内',warning:'预警',critical:'严重偏离',unknown:'锚定价待确认'};
 const badge = (status,text) => `<span class="badge ${h(status)}">${h(text??labels[status]??status)}</span>`;
-const brand = '<span class="brand-mark" aria-hidden="true">◇</span><span>Depeg<small>STABLECOIN OBSERVATORY</small></span>';
+const brand = '<span class="brand-mark" aria-hidden="true">◇</span><span>Depeg<small>稳定币研究</small></span>';
 const sessionKey='depeg.session.v1';
 const usernamePattern='[A-Za-z0-9][A-Za-z0-9_.\\-]{2,31}';
 const state={user:null,tokens:null,overview:null,epoch:0,controller:null,refresh:null,chartField:'price',points:[],filter:'all',search:'',sort:'cap',marketView:'list',comparison:null};
@@ -70,7 +70,29 @@ async function api(path,options={}) {
 }
 
 function renderAuth(message='',register=false) {
-  $('#app').innerHTML=`<div class="auth-layout"><section class="auth-story"><a class="brand" href="#/overview">${brand}</a><div><div class="eyebrow">FOLLOW THE PEG. UNDERSTAND THE CHANGE.</div><h1>观察价格，<br>也看见<span>偏离。</span></h1><p class="intro">从一条价格曲线，到每一次阈值命中。让稳定币历史数据成为可查、可比、可回看的记录。</p></div><div class="orbit" aria-hidden="true"></div><p class="story-bottom">历史行情研究 · 数据来源可追溯 · UTC 时间</p></section><main id="main" class="auth-side"><section class="auth-box"><div class="eyebrow">YOUR RESEARCH WORKSPACE</div><h2>${register?'创建研究账号':'欢迎回到观察台'}</h2><p>登录后查看已导入的数据，保存你的监测阈值。</p><div class="auth-tabs" role="tablist" aria-label="账号操作"><button class="auth-tab ${register?'':'active'}" role="tab" aria-selected="${!register}" id="login-tab">登录</button><button class="auth-tab ${register?'active':''}" role="tab" aria-selected="${register}" id="register-tab">注册</button></div><form class="auth-form" id="auth-form"><label>用户名<input id="username" name="username" autocomplete="username" required minlength="3" maxlength="32" pattern="${h(usernamePattern)}" placeholder="3–32 位英文、数字或 _ . -"></label><label>密码<input id="password" name="password" type="password" autocomplete="${register?'new-password':'current-password'}" required minlength="8" maxlength="72" placeholder="至少 8 位"></label><p id="auth-message" class="form-message" role="alert">${h(message)}</p><button class="button primary" type="submit">${register?'注册并进入观察台':'登录观察台'} <span aria-hidden="true">↗</span></button></form><p class="auth-footer">账号用于保存个人阈值与检测记录。页面展示实际导入的数据，时间与数据来源均会标明。</p></section></main></div>`;
+  $('#app').innerHTML = `
+    <div class="auth-layout">
+      <header class="auth-header"><a class="brand" href="#/overview">${brand}</a><span>稳定币研究工作台</span></header>
+      <main id="main" class="auth-side">
+        <section class="auth-box">
+          <div class="auth-caption">Depeg 账号</div>
+          <h1>${register?'创建研究账号':'登录工作台'}</h1>
+          <p>查看历史行情，保存你的监测规则和检测记录。</p>
+          <div class="auth-tabs" role="tablist" aria-label="账号操作">
+            <button class="auth-tab ${register?'':'active'}" role="tab" aria-selected="${!register}" id="login-tab">登录</button>
+            <button class="auth-tab ${register?'active':''}" role="tab" aria-selected="${register}" id="register-tab">注册</button>
+          </div>
+          <form class="auth-form" id="auth-form">
+            <label>用户名<input id="username" name="username" autocomplete="username" required minlength="3" maxlength="32" pattern="${h(usernamePattern)}" placeholder="3–32 位英文、数字或 _ . -"></label>
+            <label>密码<input id="password" name="password" type="password" autocomplete="${register?'new-password':'current-password'}" required minlength="8" maxlength="72" placeholder="至少 8 位"></label>
+            <p id="auth-message" class="form-message" role="alert">${h(message)}</p>
+            <button class="button primary" type="submit">${register?'注册并进入工作台':'登录'}</button>
+          </form>
+          <p class="auth-footer">账号用于保存个人监测设置。行情来自项目已有的历史数据，观测时间以 UTC 展示。</p>
+        </section>
+      </main>
+      <footer class="auth-bottom">Depeg · 稳定币历史价格与阈值研究</footer>
+    </div>`;
   // The v-mode HTML pattern grammar requires a literal hyphen to be escaped.
   $('#username').setAttribute('pattern',usernamePattern);
   $('#login-tab').onclick=()=>renderAuth('',false);$('#register-tab').onclick=()=>renderAuth('',true);
@@ -90,7 +112,28 @@ function renderAuth(message='',register=false) {
 }
 
 function renderShell() {
-  $('#app').innerHTML=`<div class="layout"><aside class="sidebar"><a class="brand" href="#/overview">${brand}</a><nav aria-label="主导航"><a class="nav-link" data-nav="overview" href="#/overview"><span class="nav-icon" aria-hidden="true">▦</span>市场总览</a><a class="nav-link" data-nav="events" href="#/events"><span class="nav-icon" aria-hidden="true">⌁</span>阈值记录</a><a class="nav-link" data-nav="guide" href="#/guide"><span class="nav-icon" aria-hidden="true">◎</span>数据口径</a></nav><div class="sidebar-foot"><strong><span class="tiny-dot"></span>本地研究工作台</strong>已导入的历史行情<br>所有时间统一为 UTC<br>v0.5 · Depeg Platform</div></aside><div class="workspace"><header class="topbar"><span id="crumb">工作台 / 市场总览</span><div class="topbar-right"><span class="source-label">HISTORICAL DATA</span><span class="user-chip"><span class="avatar">${h(state.user.Username?.[0]??state.user.username?.[0]?.toUpperCase()??'U')}</span>${h(state.user.username)}</span><button id="logout" class="text-button" type="button">退出</button></div></header><main id="main" tabindex="-1"></main></div></div>`;
+  const username = state.user.username ?? state.user.Username ?? '';
+  $('#app').innerHTML = `
+    <div class="layout">
+      <header class="site-header">
+        <div class="site-header-inner">
+          <a class="brand" href="#/overview">${brand}</a>
+          <nav class="site-nav" aria-label="主导航">
+            <a class="nav-link" data-nav="overview" href="#/overview">市场总览</a>
+            <a class="nav-link" data-nav="events" href="#/events">阈值记录</a>
+            <a class="nav-link" data-nav="guide" href="#/guide">数据说明</a>
+          </nav>
+          <div class="account-actions">
+            <span class="user-chip"><span class="avatar" aria-hidden="true">${h(username.slice(0,1).toUpperCase()||'U')}</span><span class="user-name">${h(username)}</span></span>
+            <button id="logout" class="text-button" type="button">退出</button>
+          </div>
+        </div>
+      </header>
+      <div class="workspace">
+        <div class="topbar"><span id="crumb">工作台 / 市场总览</span><span class="source-label"><span class="tiny-dot" aria-hidden="true"></span>历史行情 · UTC</span></div>
+        <main id="main" tabindex="-1"></main>
+      </div>
+    </div>`;
   $('#logout').onclick=async()=>{
     const b=$('#logout');b.disabled=true;
     try{if(state.refresh)await state.refresh;await api('/auth/logout',{method:'POST'});clearAccount();renderAuth();}
@@ -116,7 +159,7 @@ async function renderRoute(force=false) {
   const route=location.hash.startsWith('#/')?location.hash.slice(2):'overview';
   const active=route==='events'?'events':route==='guide'?'guide':'overview';
   document.querySelectorAll('[data-nav]').forEach(n=>{n.classList.toggle('active',n.dataset.nav===active);if(n.dataset.nav===active)n.setAttribute('aria-current','page');else n.removeAttribute('aria-current');});
-  $('#crumb').textContent='工作台 / '+({events:'阈值记录',guide:'数据口径',overview:'市场总览'}[active]);
+  $('#crumb').textContent='工作台 / '+({events:'阈值记录',guide:'数据说明',overview:'市场总览'}[active]);
   $('#main').innerHTML='<div class="loading-line"></div><p class="loading-text">正在读取数据…</p>';
   try {
     if(route==='guide'){renderGuide();return;}
@@ -139,7 +182,8 @@ function renderOverview(overview,signal) {
   const assets=overview.assets,configured=assets.filter(a=>a.rule).length,abnormal=assets.filter(a=>a.status==='warning'||a.status==='critical').length;
   const times=assets.flatMap(a=>a.streams.map(s=>s.latest.observed_at)).sort(),latest=times.at(-1);
   document.title='市场总览 · Depeg';
-  $('#main').innerHTML=`<div class="page-head"><div><div class="eyebrow">MARKET OVERVIEW</div><h1>稳定币观察台</h1><p>追踪历史价格，理解每一次偏离。</p></div><div class="head-actions">${badge('history','已导入的历史数据')}<button class="button" id="refresh-data">↻ 刷新数据</button></div></div><div class="metrics"><div class="metric"><span class="metric-index">01</span><div class="label">覆盖资产</div><div class="value mono">${assets.length}<span class="small muted"> 个</span></div><div class="foot">以资产 ID 区分同名币种</div></div><div class="metric"><span class="metric-index">02</span><div class="label">我的监测规则</div><div class="value mono">${configured}<span class="small muted"> / ${assets.length}</span></div><div class="foot">按账号保存锚定价和阈值</div></div><div class="metric"><span class="metric-index">03</span><div class="label">最近记录超阈值</div><div class="value mono ${abnormal?'negative':''}">${abnormal}<span class="small muted"> 个</span></div><div class="foot">反映最后记录，含历史数据</div></div><div class="metric"><span class="metric-index">04</span><div class="label">数据中最新观测日期</div><div class="value date mono">${h(date(latest))}</div><div class="foot">UTC · 数据时间与当前时间不同</div></div></div><div class="notice"><span class="symbol" aria-hidden="true">ⓘ</span><span>当前展示已导入的数据。价格偏离以确认的锚定价计算；未设置锚定价的资产不会被判定为“阈值内”。进入币种详情可保存阈值并检测历史区间。</span></div><section class="panel"><div class="panel-head"><div><h2>稳定币市场</h2><p>最新观测价格与各币种的数据覆盖情况</p></div><div class="market-panel-actions"><span class="small muted">${assets.length} ASSETS</span><div class="market-switch" role="tablist" aria-label="市场展示方式"><button id="market-list-tab" class="market-view-tab" role="tab" aria-selected="true" aria-controls="market-list-panel" tabindex="0">资产列表</button><button id="market-trends-tab" class="market-view-tab" role="tab" aria-selected="false" aria-controls="market-trends-panel" tabindex="-1"><span aria-hidden="true">⌁</span> 趋势</button></div></div></div><div id="market-list-panel" role="tabpanel" aria-labelledby="market-list-tab"><div class="table-toolbar"><div class="tabs" role="group" aria-label="状态筛选"><button class="tab" data-filter="all">全部资产</button><button class="tab" data-filter="abnormal">记录异常</button><button class="tab" data-filter="unknown">待确认锚定价</button><button class="tab" data-filter="configured">已配置</button></div><div class="filters"><input class="search" id="asset-search" aria-label="搜索币种" placeholder="搜索名称、代码或资产 ID" value="${h(state.search)}"><select id="asset-sort" aria-label="排序"><option value="cap">市值优先</option><option value="deviation">偏离程度</option><option value="name">币种名称</option><option value="latest">观测时间</option></select></div></div><div class="table-scroll"><table><thead><tr><th>资产 / ID</th><th>最新记录价</th><th>价格偏离</th><th>记录状态</th><th>市值</th><th>观测时间 · UTC</th><th></th></tr></thead><tbody id="asset-rows"></tbody></table></div><div id="asset-empty" hidden></div><div class="table-foot"><span id="asset-count"></span><span>1 bps = 0.01% · 日快照与 OHLC 分开展示</span></div></div><div id="market-trends-panel" role="tabpanel" aria-labelledby="market-trends-tab" hidden></div></section>`;
+  const evaluated = assets.some(a => a.status !== 'unknown');
+  $('#main').innerHTML=`<div class="page-head"><div><h1>稳定币行情</h1><p>查看历史价格、锚定偏离和个人监测规则。</p></div><div class="head-actions"><button class="button" id="refresh-data">↻ 刷新数据</button></div></div><div class="metrics"><div class="metric"><div class="label">覆盖资产</div><div class="value mono">${assets.length}<span class="small muted"> 个</span></div><div class="foot">按资产 ID 区分币种</div></div><div class="metric"><div class="label">已配置监测</div><div class="value mono">${configured}<span class="small muted"> / ${assets.length}</span></div><div class="foot">当前账号的锚定价与阈值</div></div><div class="metric"><div class="label">最新观测超阈值</div><div class="value mono ${abnormal?'negative':''}">${evaluated?abnormal:'—'}<span class="small muted">${evaluated?' 个':''}</span></div><div class="foot">${evaluated?'基于已确认锚定价的资产':'设置锚定价与阈值后计算'}</div></div><div class="metric"><div class="label">最新数据日期</div><div class="value date mono">${h(date(latest))}</div><div class="foot">数据观测时间 · UTC</div></div></div><div class="notice market-note"><span class="symbol" aria-hidden="true">ⓘ</span><span>价格为数据中的最新观测。进入币种详情设置锚定价与阈值，可检测所选历史区间。</span></div><section class="panel market-panel"><div class="panel-head"><div><h2>稳定币市场</h2><p>价格、偏离程度与数据覆盖</p></div><div class="market-panel-actions"><span class="small muted">${assets.length} 个资产</span><div class="market-switch" role="tablist" aria-label="市场展示方式"><button id="market-list-tab" class="market-view-tab" role="tab" aria-selected="true" aria-controls="market-list-panel" tabindex="0">资产列表</button><button id="market-trends-tab" class="market-view-tab" role="tab" aria-selected="false" aria-controls="market-trends-panel" tabindex="-1">趋势对比</button></div></div></div><div id="market-list-panel" role="tabpanel" aria-labelledby="market-list-tab"><div class="table-toolbar"><div class="tabs" role="group" aria-label="状态筛选"><button class="tab" data-filter="all">全部资产</button><button class="tab" data-filter="abnormal">价格超阈值</button><button class="tab" data-filter="unknown">待确认锚定价</button><button class="tab" data-filter="configured">已配置</button></div><div class="filters"><input class="search" id="asset-search" aria-label="搜索币种" placeholder="搜索币种名称、代码或 ID" value="${h(state.search)}"><select id="asset-sort" aria-label="排序"><option value="cap">市值优先</option><option value="deviation">偏离程度</option><option value="name">币种名称</option><option value="latest">观测时间</option></select></div></div><div class="table-scroll"><table class="market-table"><thead><tr><th scope="col">#</th><th scope="col">币种 / 资产 ID</th><th>最新记录价</th><th>价格偏离</th><th>记录状态</th><th>市值</th><th>观测时间 · UTC</th><th>详情</th></tr></thead><tbody id="asset-rows"></tbody></table></div><div id="asset-empty" hidden></div><div class="table-foot"><span id="asset-count"></span><span>1 bps = 0.01% · 日快照与 OHLC 分开展示</span></div></div><div id="market-trends-panel" role="tabpanel" aria-labelledby="market-trends-tab" hidden></div></section>`;
   $('#refresh-data').onclick=()=>renderRoute(true);
   $('#asset-sort').value=state.sort;
   $('#asset-search').oninput=e=>{state.search=e.target.value;updateAssetRows(assets);};
@@ -168,7 +212,7 @@ function renderOverview(overview,signal) {
   changeView(state.marketView);
 }
 
-const comparisonPalette=['#58dfbb','#8caeff','#f6c66a','#cc9bff','#fa858f','#61d7ff','#f2a86f','#b5d77d'];
+const comparisonPalette=['#4b8f29','#367ae0','#bd7d1d','#8060c1','#d45171','#1591a4','#a76a42','#7c911f'];
 
 function renderMarketTrends(container, assets, parentSignal) {
   const byGroup=new Map();
@@ -199,7 +243,7 @@ function renderMarketTrends(container, assets, parentSignal) {
     settings.ids=settings.ids.filter(id=>group.items.some(item=>item.asset.asset.id===id));
     request++;controller?.abort();loaded=[];loadedRange=null;
     const oldChart=container.querySelector('#comparison-chart');if(oldChart)disposeChart(oldChart);
-    container.innerHTML=`<div class="trend-intro"><div><span class="eyebrow">COMPARE THE HISTORY</span><h3>把价格变化放在同一条时间轴上</h3><p>不同颜色代表不同资产。选择日期，比较它们在同一数据来源下的历史表现。</p></div><span class="badge history">最多 8 个资产</span></div>
+    container.innerHTML=`<div class="trend-intro"><div><h3>历史趋势对比</h3><p>不同颜色代表不同资产。选择日期，比较它们在同一数据来源下的历史表现。</p></div><span class="badge history">最多 8 个资产</span></div>
       <div class="trend-settings"><label class="trend-source-label">数据口径<select id="trend-source">${groups.map(g=>`<option value="${h(g.key)}">${h(streamLabel(g.stream))} · ${h(g.quote)}</option>`).join('')}</select></label><div class="trend-mode" role="group" aria-label="趋势展示方式"><button class="tab" data-trend-mode="price">价格</button><button class="tab" data-trend-mode="change">区间涨跌幅</button></div></div>
       <form id="trend-date-form" class="date-form trend-dates"><label>开始日期 · UTC<input type="date" id="trend-from" value="${h(settings.from)}" required></label><label>结束日期 · UTC<input type="date" id="trend-to" value="${h(settings.to)}" required></label><button class="button" type="submit" id="trend-apply">应用日期</button><div class="range-tabs" role="group" aria-label="趋势日期快捷选择">${(group.stream.kind==='daily'?[7,30,90,365,0]:[7,30]).map(days=>`<button class="range-button" type="button" data-trend-days="${days}">${days===0?'全部':days===365?'1 年':days+' 天'}</button>`).join('')}</div></form>
       <div class="trend-picker"><div class="trend-picker-head"><span>选择对比资产 <strong id="trend-selected-count"></strong></span><div><button class="text-button" type="button" id="trend-select-all">${group.items.length>8?'选择前 8 个':'全选'}</button><button class="text-button" type="button" id="trend-select-none">清空</button></div></div><div id="trend-choices" class="trend-choices"></div></div>
@@ -305,7 +349,7 @@ function updateAssetRows(assets) {
   });
   $('#asset-rows').innerHTML=filtered.map((a,i)=>{
     const s=chosen(a),p=s?.latest,change=a.deviation_bps;
-    return `<tr><td><a class="asset-cell" href="${assetLink(a.asset.id)}">${coin(a.asset,i)}<span><span class="asset-name">${h(a.asset.symbol)}</span><span class="asset-id secondary" title="${h(a.asset.id)}">${h(a.asset.id.replace(/^coingecko\./,''))}</span></span></a></td><td class="mono">${h(price(p?.price))}<span class="secondary">${h(s?quoteFor(a,s):'—')} · ${h(s?s.kind==='daily'?'日快照':'收盘价':'暂无记录')}</span></td><td class="mono ${change===null?'muted':Number(change)<0?'negative':'positive'}">${h(bps(change))}<span class="secondary">${change===null?'设置锚定价后计算':h((Number(change)/100).toFixed(4))+'%'}</span></td><td>${badge(a.status)}<span class="secondary">${a.freshness==='historical'?'历史记录':a.freshness==='future'?'数据时间在未来':a.freshness==='missing'?'暂无记录':'较新记录'}</span></td><td class="mono">${h(amount(p?.market_cap_usd))}<span class="secondary">${s?.kind==='daily'?'该日快照':'此数据源不含市值'}</span></td><td class="mono">${h(datetime(p?.observed_at))}<span class="secondary">${h(s?.source??'尚未导入行情')}</span></td><td><a class="arrow" href="${assetLink(a.asset.id)}" aria-label="查看 ${h(a.asset.symbol)} 详情">↗</a></td></tr>`;
+    return `<tr><td>${i+1}</td><td><a class="asset-cell" href="${assetLink(a.asset.id)}">${coin(a.asset,i)}<span><span class="asset-name">${h(a.asset.symbol)}</span><span class="asset-id secondary" title="${h(a.asset.id)}">${h(a.asset.id.replace(/^coingecko\./,''))}</span></span></a></td><td class="mono">${h(price(p?.price))}<span class="secondary">${h(s?quoteFor(a,s):'—')} · ${h(s?s.kind==='daily'?'日快照':'收盘价':'暂无记录')}</span></td><td class="mono ${change===null?'muted':Number(change)<0?'negative':'positive'}">${h(bps(change))}<span class="secondary">${change===null?'设置锚定价后计算':h((Number(change)/100).toFixed(4))+'%'}</span></td><td>${badge(a.status)}<span class="secondary">${a.freshness==='historical'?'历史记录':a.freshness==='future'?'数据时间在未来':a.freshness==='missing'?'暂无记录':'较新记录'}</span></td><td class="mono">${h(amount(p?.market_cap_usd))}<span class="secondary">${s?.kind==='daily'?'该日快照':'此数据源不含市值'}</span></td><td class="mono">${h(datetime(p?.observed_at))}<span class="secondary">${h(s?.source??'尚未导入行情')}</span></td><td><a class="arrow" href="${assetLink(a.asset.id)}" aria-label="查看 ${h(a.asset.symbol)} 详情">↗</a></td></tr>`;
   }).join('');
   const n=$('#asset-empty');n.hidden=filtered.length>0;n.innerHTML=assets.length?empty('没有匹配的币种','尝试其他名称，或切换筛选条件。'):empty('还没有行情数据','完成数据导入后，资产列表和历史趋势会出现在这里。导入步骤见项目 README。');
   $('#asset-count').textContent=`显示 ${filtered.length} / ${assets.length} 个资产`;
@@ -420,7 +464,7 @@ async function loadEvents(container,assetID,signal) {
       const params=new URLSearchParams({limit:'50'});if(assetID)params.set('asset_id',assetID);if(cursor)params.set('cursor',cursor);
       const result=await api('/monitor/events?'+params,{signal});if(signal.aborted||!container.isConnected)return;
       events.push(...result.events);cursor=result.next_cursor;
-      if(!events.length){container.innerHTML=empty('还没有阈值命中记录','进入币种详情，确认锚定价并保存阈值，再检测所选历史区间。阈值内的观测不会生成命中记录。');return;}
+      if(!events.length){container.innerHTML=empty('还没有阈值命中记录','选择币种、保存阈值并检测历史区间后，超出阈值的观测会出现在这里。','<a class="button primary" href="#/overview">去选择币种</a>');return;}
       container.innerHTML=`<div class="table-scroll"><table><thead><tr><th>观测时间 · UTC</th><th>资产 / 来源</th><th>观测价 / 锚定价</th><th>偏离</th><th>程度</th><th>阈值版本 / 检测时间</th></tr></thead><tbody>${events.map(event=>`<tr><td class="mono">${h(datetime(event.observed_at))}<span class="secondary">${event.kind==='daily'?'日快照':'收盘价'} · ${h(event.direction==='below'?'低于锚定价':'高于锚定价')}</span></td><td><a href="${assetLink(event.asset_id)}">${h(event.asset_id.replace(/^coingecko\./,''))}</a><span class="secondary">${h(event.source)}</span></td><td class="mono">${h(price(event.price))}<span class="secondary">锚定 ${h(price(event.anchor_price))}</span></td><td class="mono ${event.direction==='below'?'negative':'positive'}">${h(bps(event.deviation_bps))}</td><td>${badge(event.severity)}<span class="secondary">预警 ${event.warning_bps/100}% / 严重 ${event.critical_bps/100}%</span></td><td class="mono"><span title="${h(event.rule_version)}">${h(event.rule_version.slice(0,8))}</span><span class="secondary">${h(datetime(event.detected_at))}</span></td></tr>`).join('')}</tbody></table></div><div class="table-foot"><span>已显示 ${events.length} 条 · 按观测时间倒序</span>${cursor?'<button class="button" data-more>加载更多</button>':'<span>已显示全部记录</span>'}</div>`;
       if(cursor)container.querySelector('[data-more]').onclick=e=>{e.currentTarget.disabled=true;page();};
     } catch(error){if(error.name!=='AbortError'&&!signal.aborted&&container.isConnected){const box=document.createElement('div');box.className='notice error';box.textContent=error.message;const retry=document.createElement('button');retry.className='button';retry.textContent='重试读取';retry.onclick=()=>{box.remove();page();};box.append(retry);container.append(box);}}
@@ -430,15 +474,61 @@ async function loadEvents(container,assetID,signal) {
 
 function renderEventPage(overview,signal) {
   document.title='阈值记录 · Depeg';
-  $('#main').innerHTML=`<div class="page-head"><div><div class="eyebrow">THRESHOLD OBSERVATIONS</div><h1>我的阈值记录</h1><p>回看超出阈值的实际观测，保留当时使用的锚定价和规则版本。</p></div><button class="button" id="reload-events">↻ 刷新记录</button></div><div class="notice"><span class="symbol" aria-hidden="true">ⓘ</span><span>这里仅展示当前账号发起检测后保存的命中记录。每条对应一条源观测，不推断缺失数据期间的状态，也不代表论文模型预测。</span></div><section class="panel"><div class="panel-head"><div><h2>检测记录</h2><p>更改阈值后，旧版本记录会保留</p></div><select id="event-asset" aria-label="筛选记录的币种"><option value="">全部币种</option>${overview.assets.map(a=>`<option value="${h(a.asset.id)}">${h(a.asset.symbol)} · ${h(a.asset.id.replace(/^coingecko\./,''))}</option>`).join('')}</select></div><div id="all-events"></div></section>`;
+  $('#main').innerHTML=`<div class="page-head"><div><h1>阈值记录</h1><p>查看你发起的历史检测结果，追溯每次观测使用的规则。</p></div><button class="button" id="reload-events">↻ 刷新记录</button></div><div class="notice"><span class="symbol" aria-hidden="true">ⓘ</span><span>每条记录对应一次超阈值观测。检测结果按账号保存，调整阈值后，旧版本记录仍可回看。</span></div><section class="panel"><div class="panel-head"><div><h2>历史命中记录</h2><p>更改阈值后，旧版本记录会保留</p></div><select id="event-asset" aria-label="筛选记录的币种"><option value="">全部币种</option>${overview.assets.map(a=>`<option value="${h(a.asset.id)}">${h(a.asset.symbol)} · ${h(a.asset.id.replace(/^coingecko\./,''))}</option>`).join('')}</select></div><div id="all-events"></div></section>`;
   let child=new AbortController();const abort=()=>child.abort();signal.addEventListener('abort',abort,{once:true});
   const reload=()=>{child.abort();child=new AbortController();if(signal.aborted){child.abort();return;}loadEvents($('#all-events'),$('#event-asset').value,child.signal);};
   $('#event-asset').onchange=reload;$('#reload-events').onclick=reload;reload();
 }
 
 function renderGuide() {
-  document.title='数据口径 · Depeg';
-  $('#main').innerHTML=`<div class="page-head"><div><div class="eyebrow">METHODOLOGY & COVERAGE</div><h1>读懂这些数据</h1><p>先确认数据的时间、来源和锚定价，再理解图表中的变化。</p></div></div><div class="guide-grid"><article class="panel guide-card"><div class="guide-index">01 / PEG DEVIATION</div><h2>偏离是怎样计算的？</h2><p>用当前所选来源的记录价与锚定价比较，保留偏离方向。正数表示高于锚定价，负数表示低于锚定价。</p><code>偏离 bps = (价格 / 锚定价 − 1) × 10,000</code><p>1 bps = 0.01%。以锚定价 1 为例，价格 0.995 对应 −50 bps，即 −0.5%。检测以绝对偏离判断，达到预警或严重阈值即命中。</p></article><article class="panel guide-card"><div class="guide-index">02 / VERIFIED ANCHOR</div><h2>锚定价需要确认</h2><p>稳定币可能锚定美元、其他货币或其他资产。项目不会把所有币种都默认为 1 美元；未确认锚定价的币种显示“锚定价待确认”。</p><p>在详情页填写以当前报价货币计价的锚定价，并保存阈值。此设置只属于你的账号，不覆盖导入数据的原始资产信息。</p></article><article class="panel guide-card"><div class="guide-index">03 / OBSERVATION TIME</div><h2>历史记录有自己的时间</h2><p>所有时间均以 UTC 展示。总览中的价格是所选来源的最后记录价，不保证是当前市场价格。数据超出三个采样周期会标注为历史记录。</p><p>日快照保留原始观测时刻。OHLC 曲线横轴使用区间开始时间，最新观测时间优先使用来源的收盘时间；没有该字段时，使用开始时间加采样周期。</p></article><article class="panel guide-card"><div class="guide-index">04 / SOURCE & GAPS</div><h2>来源、缺口与空值</h2><p>日快照和 OHLC 保持各自的数据口径。同一币种的不同来源可以切换查看，曲线不会把它们拼成一条数据。</p><p>缺失价格不补零、不插值，缺口处断开曲线。缺失市值与成交量显示为“—”。日快照的 24 小时成交额与 OHLC 的成交量是不同字段。</p></article><article class="panel guide-card"><div class="guide-index">05 / PERSONAL RULES</div><h2>阈值与检测记录</h2><p>每个账号可以为一个币种保存一套规则，规则同时绑定数据来源与采样周期。修改阈值后需再次保存，再检测所选历史区间。</p><p>每条命中记录对应一条超阈值观测。相同规则重复检测同一条观测不会重复写入；更改规则后生成新版本，并保留旧记录。连续命中不等于多次独立脱锚。</p></article><article class="panel guide-card"><div class="guide-index">06 / RESEARCH MODEL</div><h2>与论文模型的关系</h2><p>当前页面展示历史事实和阈值检测结果。论文模型的推理尚未接入，因此页面没有显示预测分数。</p><p>实时数据采集、消息通知和模型预测可在后续阶段接入。当前刷新按钮重新读取本地数据库，历史检测由你在详情页发起。</p></article></div>`;
+  document.title = '数据说明 · Depeg';
+  $('#main').innerHTML = `
+    <div class="page-head"><div><h1>数据说明</h1><p>了解价格偏离的计算方式、数据来源与检测规则。</p></div></div>
+    <div class="guide-layout">
+      <div class="guide-content">
+        <article class="guide-lead">
+          <h2>怎样计算价格偏离？</h2>
+          <p>将记录价格与确认的锚定价比较。正数表示高于锚定价，负数表示低于锚定价，1 bps 等于 0.01%。</p>
+          <code class="guide-formula">偏离 bps = (记录价格 ÷ 锚定价 − 1) × 10,000</code>
+          <div class="guide-example">
+            <div><span>锚定价</span><strong>1 USD</strong></div>
+            <div><span>记录价格</span><strong>0.995 USD</strong></div>
+            <div><span>价格偏离</span><strong class="negative">−50 bps</strong></div>
+          </div>
+          <p>上例相当于偏离 −0.5%。检测时以偏离的绝对值与阈值比较，达到预警或严重阈值即命中。</p>
+        </article>
+        <details class="guide-section" open>
+          <summary>为什么需要确认锚定价？</summary>
+          <p>稳定币的锚定对象可能是美元、其他货币或其他资产。锚定价应使用当前数据来源的报价货币。在详情页确认并保存后，才能根据你的规则计算偏离。</p>
+          <p>未确认锚定价时，页面显示“锚定价待确认”。个人设置按账号保存，原始资产信息另行保留。</p>
+        </details>
+        <details class="guide-section">
+          <summary>价格与时间代表什么？</summary>
+          <p>所有时间均以 UTC 展示。总览价格来自所选来源的最后一条记录，最新数据日期表示数据本身的观测时间。超过三个采样周期的观测标记为历史记录。</p>
+          <p>日快照保留原始观测时刻。OHLC 横轴使用区间开始时间，最新观测时间优先使用来源的收盘时间，缺少该字段时采用开始时间加采样周期。</p>
+        </details>
+        <details class="guide-section">
+          <summary>如何理解来源、缺口与空值？</summary>
+          <p>日快照和 OHLC 各自展示。切换来源时，曲线读取对应来源的记录。缺失价格处断线，缺失市值或成交量显示为“—”。</p>
+          <p>日快照的 24 小时成交额与 OHLC 的成交量是不同字段，图表和 CSV 导出均保留各自的数据口径。</p>
+        </details>
+        <details class="guide-section">
+          <summary>阈值记录如何保存？</summary>
+          <p>每个账号可以为一个币种保存一套规则，规则同时绑定数据来源与采样周期。保存后检测所选区间，超过阈值的实际观测会写入该账号的记录。</p>
+          <p>相同规则重复检测同一条观测时，记录按唯一标识更新。调整规则会生成新版本，旧记录继续保留。连续多条命中可能来自同一次持续偏离。</p>
+        </details>
+        <details class="guide-section">
+          <summary>当前接入了哪些研究功能？</summary>
+          <p>当前提供历史行情查询、价格偏离计算和手动区间检测。刷新会重新读取项目数据库，检测由你在币种详情页发起。</p>
+          <p>论文模型推理、实时采集和消息通知属于后续接入内容。当前结果以历史观测与阈值规则为依据。</p>
+        </details>
+      </div>
+      <aside class="guide-steps">
+        <h2>开始一次检测</h2>
+        <ol><li>在市场总览选择币种。</li><li>确认数据来源与日期范围。</li><li>填写锚定价、预警和严重阈值，保存规则。</li><li>点击“检测当前区间”，在阈值记录中查看结果。</li></ol>
+        <a class="button primary" href="#/overview">去选择币种</a>
+      </aside>
+    </div>`;
 }
 
 window.addEventListener('hashchange',()=>renderRoute());

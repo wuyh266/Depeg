@@ -53,7 +53,7 @@ export function renderChart(container, records, {field='price', anchor=null, war
   svg.append(el('title',{},'使用左右方向键逐条查看数据，时间使用 UTC。缺失数据处断开曲线。'));
   for(let i=0;i<=4;i++) {
     const v=ymin+(ymax-ymin)*i/4,py=y(v);
-    svg.append(el('line',{x1:pad.l,x2:width-pad.r,y1:py,y2:py,stroke:'#263346','stroke-dasharray':'3 5'}));
+    svg.append(el('line',{x1:pad.l,x2:width-pad.r,y1:py,y2:py,stroke:'#e5e9ed','stroke-dasharray':'3 5'}));
     const label=Math.abs(v)>=1e12?display(v):Math.abs(v)>=1e9?`${number.format(v/1e9)}B`:Math.abs(v)>=1e6?`${number.format(v/1e6)}M`:Math.abs(v)>=1e3?`${number.format(v/1e3)}K`:display(v);
     svg.append(el('text',{x:pad.l-12,y:py+4,'text-anchor':'end'},label));
   }
@@ -63,19 +63,19 @@ export function renderChart(container, records, {field='price', anchor=null, war
   }
   svg.append(el('text',{x:pad.l,y:15},deviation?'偏离 / bps':quote));
   if(ref!==null) {
-    svg.append(el('line',{x1:pad.l,x2:width-pad.r,y1:y(ref),y2:y(ref),stroke:'#f6c66a','stroke-dasharray':'6 5',opacity:'.75'}));
+    svg.append(el('line',{x1:pad.l,x2:width-pad.r,y1:y(ref),y2:y(ref),stroke:'#b58c24','stroke-dasharray':'6 5',opacity:'.75'}));
     const bands=deviation?[warning,-warning,critical,-critical]:field==='price'?[anchor*(1+warning/10000),anchor*(1-warning/10000),anchor*(1+critical/10000),anchor*(1-critical/10000)]:[];
-    for(const v of bands)if(v>ymin&&v<ymax)svg.append(el('line',{x1:pad.l,x2:width-pad.r,y1:y(v),y2:y(v),stroke:'#a68550','stroke-dasharray':'2 7',opacity:'.35'}));
+    for(const v of bands)if(v>ymin&&v<ymax)svg.append(el('line',{x1:pad.l,x2:width-pad.r,y1:y(v),y2:y(v),stroke:'#b58c24','stroke-dasharray':'2 7',opacity:'.35'}));
   }
   const segments=splitSegments(all,cadence);
   const budget=Math.max(20,Math.floor(1000/Math.max(1,segments.length)));
   for(const segment of segments) {
     const points=sampleExtrema(segment,budget);
-    if(points.length===1)svg.append(el('circle',{cx:x(points[0].t),cy:y(points[0].y),r:2.5,fill:'#58dfbb'}));
-    else svg.append(el('path',{d:points.map((p,i)=>`${i?'L':'M'}${x(p.t).toFixed(2)},${y(p.y).toFixed(2)}`).join(' '),fill:'none',stroke:'#58dfbb','stroke-width':2,'stroke-linejoin':'round','vector-effect':'non-scaling-stroke'}));
+    if(points.length===1)svg.append(el('circle',{cx:x(points[0].t),cy:y(points[0].y),r:2.5,fill:'#4b8f29'}));
+    else svg.append(el('path',{d:points.map((p,i)=>`${i?'L':'M'}${x(p.t).toFixed(2)},${y(p.y).toFixed(2)}`).join(' '),fill:'none',stroke:'#4b8f29','stroke-width':2,'stroke-linejoin':'round','vector-effect':'non-scaling-stroke'}));
   }
-  const cross=el('line',{x1:0,x2:0,y1:pad.t,y2:height-pad.b,stroke:'#59758e','stroke-dasharray':'4 4',visibility:'hidden'});
-  const dot=el('circle',{cx:0,cy:0,r:4,fill:'#58dfbb',stroke:'#111a27','stroke-width':2,visibility:'hidden'});
+  const cross=el('line',{x1:0,x2:0,y1:pad.t,y2:height-pad.b,stroke:'#8a969f','stroke-dasharray':'4 4',visibility:'hidden'});
+  const dot=el('circle',{cx:0,cy:0,r:4,fill:'#4b8f29',stroke:'#ffffff','stroke-width':2,visibility:'hidden'});
   const tooltip=el('g',{visibility:'hidden'}),box=el('rect',{width:236,height:51,rx:6,class:'chart-tooltip'}),dateText=el('text',{x:10,y:18}),valueText=el('text',{x:10,y:37});tooltip.append(box,dateText,valueText);
   const overlay=el('rect',{x:pad.l,y:pad.t,width:plotW,height:plotH,fill:'transparent'});
   svg.append(cross,dot,tooltip,overlay);container.append(svg);
@@ -161,7 +161,7 @@ export function renderComparisonChart(container, series, {mode = 'price', quote 
   svg.append(el('title', {}, '横轴为 UTC 时间。悬停或使用左右方向键查看同一时刻的各资产读数；缺失记录不插值。'));
   for (let i = 0; i <= 4; i++) {
     const value = ymin + (ymax - ymin) * i / 4, py = y(value);
-    svg.append(el('line', {x1: pad.l, x2: width - pad.r, y1: py, y2: py, stroke: '#263346', 'stroke-dasharray': '3 5'}));
+    svg.append(el('line', {x1: pad.l, x2: width - pad.r, y1: py, y2: py, stroke: '#e5e9ed', 'stroke-dasharray': '3 5'}));
     svg.append(el('text', {x: pad.l - 12, y: py + 4, 'text-anchor': 'end'}, display(value) + (mode === 'change' ? '%' : '')));
   }
   const ticks = width < 480 ? 2 : 4;
@@ -174,7 +174,7 @@ export function renderComparisonChart(container, series, {mode = 'price', quote 
   svg.append(el('text', {x: pad.l, y: 16}, mode === 'change' ? '区间涨跌幅 / %' : `价格 / ${quote}`));
   svg.append(el('text', {x: width - pad.r, y: 16, 'text-anchor': 'end'}, 'UTC'));
   const reference = mode === 'change' ? 0 : quote === 'USD' && ymin <= 1 && ymax >= 1 ? 1 : null;
-  if (reference !== null) svg.append(el('line', {x1: pad.l, x2: width - pad.r, y1: y(reference), y2: y(reference), stroke: '#718098', 'stroke-dasharray': '6 6'}));
+  if (reference !== null) svg.append(el('line', {x1: pad.l, x2: width - pad.r, y1: y(reference), y2: y(reference), stroke: '#8d98a2', 'stroke-dasharray': '6 6'}));
   for (const s of validSeries) {
     const segments = splitSegments(s.points, s.cadence);
     const budget = Math.max(8, Math.floor(1200 / Math.max(1, segments.length)));
@@ -186,8 +186,8 @@ export function renderComparisonChart(container, series, {mode = 'price', quote 
   }
   const timestamps = [...new Set(validSeries.flatMap(s => s.valid.map(p => p.t)))].sort((a, b) => a - b);
   const lookups = validSeries.map(s => new Map(s.valid.map(p => [p.t, p])));
-  const cross = el('line', {y1: pad.t, y2: height - pad.b, stroke: '#91a1b7', 'stroke-dasharray': '4 4', visibility: 'hidden'});
-  const dots = validSeries.map(s => el('circle', {r: 4, fill: s.color, stroke: '#111a27', 'stroke-width': 2, visibility: 'hidden'}));
+  const cross = el('line', {y1: pad.t, y2: height - pad.b, stroke: '#8a969f', 'stroke-dasharray': '4 4', visibility: 'hidden'});
+  const dots = validSeries.map(s => el('circle', {r: 4, fill: s.color, stroke: '#ffffff', 'stroke-width': 2, visibility: 'hidden'}));
   const boxW = Math.min(320, width - 20), boxH = 39 + validSeries.length * 24;
   const tooltip = el('g', {visibility: 'hidden', 'pointer-events': 'none', 'data-comparison-tooltip': ''});
   tooltip.append(el('rect', {width: boxW, height: boxH, rx: 8, class: 'chart-tooltip'}));
