@@ -3,12 +3,14 @@ package mysql
 import "time"
 
 type userModel struct {
-	ID           string `gorm:"size:32;primaryKey"`
-	Username     string `gorm:"size:32;uniqueIndex:uq_users_username;not null"`
-	PasswordHash string `gorm:"size:100;not null"`
-	Disabled     bool   `gorm:"not null;default:false"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID              string  `gorm:"size:32;primaryKey"`
+	Username        string  `gorm:"size:32;uniqueIndex:uq_users_username;not null"`
+	Email           *string `gorm:"size:254;uniqueIndex:uq_users_email"`
+	EmailVerifiedAt *time.Time
+	PasswordHash    string `gorm:"size:100;not null"`
+	Disabled        bool   `gorm:"not null;default:false"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 func (userModel) TableName() string { return "users" }
@@ -58,7 +60,7 @@ func (candleModel) TableName() string { return "candles" }
 
 // SchemaModels supports isolated schema fixtures. Production uses reviewed SQL migrations.
 func SchemaModels() []any {
-	return []any{&userModel{}, &sessionModel{}, &assetModel{}, &candleModel{}, &snapshotModel{}, &newsModel{}, &monitorRuleModel{}, &monitorEventModel{}}
+	return []any{&userModel{}, &sessionModel{}, &emailCodeModel{}, &passwordResetCodeModel{}, &emailCodeSendModel{}, &assetModel{}, &candleModel{}, &snapshotModel{}, &newsModel{}, &monitorRuleModel{}, &monitorEventModel{}, &streamSummaryModel{}}
 }
 
 type snapshotModel struct {

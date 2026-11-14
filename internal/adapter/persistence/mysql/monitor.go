@@ -19,14 +19,18 @@ func NewMonitorRepository(db Database) port.MonitorRepository {
 	return &monitorRepository{database: db}
 }
 
-// Aggregates are read as strings because SQLite and MySQL return different driver types.
-func catalogTime(v string) (time.Time, error) {
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999-07:00", "2006-01-02 15:04:05.999999999Z07:00", "2006-01-02 15:04:05.999999999"} {
-		if t, e := time.Parse(layout, v); e == nil {
-			return t.UTC(), nil
-		}
-	}
-	return time.Time{}, domain.ErrUnavailable
+type catalogRow struct {
+	Asset           assetModel `gorm:"embedded"`
+	Kind            string
+	StreamSource    string
+	IntervalSeconds int64
+	FirstAt         time.Time
+	LastAt          time.Time
+	SampleCount     int64
+	Price           string
+	SourceTime      *time.Time
+	MarketCapUSD    *string
+	Volume24hUSD    *string
 }
 
 func (r *monitorRepository) Catalog(ctx context.Context) ([]monitor.Asset, error) {
@@ -34,62 +38,46 @@ func (r *monitorRepository) Catalog(ctx context.Context) ([]monitor.Asset, error
 	if err != nil {
 		return nil, err
 	}
-	var assets []assetModel
-	if err := db.Order("symbol ASC, id ASC").Limit(1000).Find(&assets).Error; err != nil {
+	// Select the asset page and its latest points from the same database snapshot.
+	assets := db.Model(&assetModel{}).Order("symbol ASC, id ASC").Limit(1000)
+	var rows []catalogRow
+	err = db.Table("(?) AS a", assets).
+		Select(`a.*, m.kind, COALESCE(c.source, s.source) AS stream_source,
+			m.interval_seconds, m.first_at, m.last_at, m.sample_count,
+			COALESCE(c.close, s.price_usd) AS price, c.source_time,
+			s.market_cap_usd, s.volume24h_usd`).
+		Joins("LEFT JOIN market_stream_summaries AS m ON m.asset_id = a.id").
+		Joins(`LEFT JOIN candles AS c ON m.kind = 'ohlc' AND c.asset_id = m.asset_id
+			AND c.source = m.source AND c.interval_seconds = m.interval_seconds AND c.open_time = m.last_at`).
+		Joins(`LEFT JOIN market_snapshots AS s ON m.kind = 'daily' AND s.asset_id = m.asset_id
+			AND s.source = m.source AND s.observed_at = m.last_at`).
+		Order("a.symbol ASC, a.id ASC, m.kind ASC, stream_source ASC, m.interval_seconds ASC").
+		Scan(&rows).Error
+	if err != nil {
 		return nil, translate(err)
 	}
-	result := make([]monitor.Asset, 0, len(assets))
-	index := map[string]int{}
-	for _, a := range assets {
-		index[a.ID] = len(result)
-		result = append(result, monitor.Asset{Asset: asset(a), Streams: []monitor.Stream{}})
-	}
-	// One indexed aggregation per dataset, not one history query per asset.
-	dailyGroup := db.Model(&snapshotModel{}).Select("asset_id, source, MIN(observed_at) AS first_at, MAX(observed_at) AS last_at, COUNT(*) AS sample_count").Group("asset_id, source")
-	var daily []struct {
-		Snapshot    snapshotModel `gorm:"embedded"`
-		FirstAt     string
-		SampleCount int64
-	}
-	if err := db.Table("market_snapshots AS s").Select("s.*, g.first_at, g.sample_count").Joins("JOIN (?) AS g ON s.asset_id = g.asset_id AND s.source = g.source AND s.observed_at = g.last_at", dailyGroup).Order("s.asset_id, s.source").Scan(&daily).Error; err != nil {
-		return nil, translate(err)
-	}
-	for _, entry := range daily {
-		row := entry.Snapshot
-		i, ok := index[row.AssetID]
-		if !ok {
+	result := make([]monitor.Asset, 0, len(rows))
+	for _, row := range rows {
+		if len(result) == 0 || result[len(result)-1].Asset.ID != row.Asset.ID {
+			result = append(result, monitor.Asset{Asset: asset(row.Asset), Streams: []monitor.Stream{}})
+		}
+		if row.Kind == "" {
 			continue
 		}
-		first, e := catalogTime(entry.FirstAt)
-		if e != nil {
-			return nil, e
+		last := row.LastAt.UTC()
+		observed := last
+		if row.Kind == "ohlc" {
+			observed = last.Add(time.Duration(row.IntervalSeconds) * time.Second)
+			if row.SourceTime != nil {
+				observed = row.SourceTime.UTC()
+			}
 		}
-		result[i].Streams = append(result[i].Streams, monitor.Stream{Kind: "daily", Source: row.Source, IntervalSeconds: 86400, FirstAt: first, LastAt: row.ObservedAt.UTC(), Count: entry.SampleCount, Latest: monitor.Point{Time: row.ObservedAt.UTC(), ObservedAt: row.ObservedAt.UTC(), Price: row.PriceUSD, MarketCapUSD: row.MarketCapUSD, Volume24hUSD: row.Volume24hUSD}})
-	}
-	hourlyGroup := db.Model(&candleModel{}).Select("asset_id, source, interval_seconds, MIN(open_time) AS first_at, MAX(open_time) AS last_at, COUNT(*) AS sample_count").Group("asset_id, source, interval_seconds")
-	var hourly []struct {
-		Candle      candleModel `gorm:"embedded"`
-		FirstAt     string
-		SampleCount int64
-	}
-	if err := db.Table("candles AS c").Select("c.*, g.first_at, g.sample_count").Joins("JOIN (?) AS g ON c.asset_id = g.asset_id AND c.source = g.source AND c.interval_seconds = g.interval_seconds AND c.open_time = g.last_at", hourlyGroup).Order("c.asset_id, c.source, c.interval_seconds").Scan(&hourly).Error; err != nil {
-		return nil, translate(err)
-	}
-	for _, entry := range hourly {
-		row := entry.Candle
-		i, ok := index[row.AssetID]
-		if !ok {
-			continue
-		}
-		first, e := catalogTime(entry.FirstAt)
-		if e != nil {
-			return nil, e
-		}
-		observed := row.OpenTime.Add(time.Duration(row.IntervalSeconds) * time.Second)
-		if row.SourceTime != nil {
-			observed = *row.SourceTime
-		}
-		result[i].Streams = append(result[i].Streams, monitor.Stream{Kind: "ohlc", Source: row.Source, IntervalSeconds: row.IntervalSeconds, FirstAt: first, LastAt: row.OpenTime.UTC(), Count: entry.SampleCount, Latest: monitor.Point{Time: row.OpenTime.UTC(), ObservedAt: observed.UTC(), Price: row.Close}})
+		entry := &result[len(result)-1]
+		entry.Streams = append(entry.Streams, monitor.Stream{
+			Kind: row.Kind, Source: row.StreamSource, IntervalSeconds: row.IntervalSeconds,
+			FirstAt: row.FirstAt.UTC(), LastAt: last, Count: row.SampleCount,
+			Latest: monitor.Point{Time: last, ObservedAt: observed, Price: row.Price, MarketCapUSD: row.MarketCapUSD, Volume24hUSD: row.Volume24hUSD},
+		})
 	}
 	return result, nil
 }

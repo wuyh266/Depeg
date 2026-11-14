@@ -28,6 +28,12 @@ func TestMonitorAtomicWritesAndRuleVersion(t *testing.T) {
 	if err := raw.AutoMigrate(SchemaModels()...); err != nil {
 		t.Fatal(err)
 	}
+	if err := raw.Exec("CREATE TABLE data_versions (name VARCHAR(64) PRIMARY KEY, version BIGINT NOT NULL)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Exec("INSERT INTO data_versions (name, version) VALUES ('assets', 1)").Error; err != nil {
+		t.Fatal(err)
+	}
 	db, err := FromGORM(raw, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +55,7 @@ func verifyMonitorContract(t *testing.T, raw *gorm.DB, db Database) {
 		t.Fatal(err)
 	}
 	repo := NewMonitorRepository(db)
-	service := monitorservice.New(repo, marketservice.New(NewMarketRepository(db),nil,nil))
+	service := monitorservice.New(repo, marketservice.New(NewMarketRepository(db), nil, nil))
 	rule, err := service.SaveRule(ctx, user, monitor.Rule{AssetID: a.ID, Kind: "ohlc", Source: "test-contract", IntervalSeconds: 3600, AnchorPrice: "1", WarningBPS: 50, CriticalBPS: 100})
 	if err != nil {
 		t.Fatal(err)

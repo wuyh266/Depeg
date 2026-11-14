@@ -1,6 +1,9 @@
 @baseUrl = http://127.0.0.1:8080
 @accessToken = paste-access-token-here
 @refreshToken = paste-refresh-token-here
+@email = your-email@example.com
+@emailCode = 000000
+@resetCode = 000000
 
 ### Liveness
 GET {{baseUrl}}/healthz
@@ -8,17 +11,35 @@ GET {{baseUrl}}/healthz
 ### Readiness (MySQL required)
 GET {{baseUrl}}/readyz
 
-### Register your own account
+### Request a registration code. Use an email address you can receive mail at.
+POST {{baseUrl}}/api/v1/auth/register/email-code
+Content-Type: application/json
+
+{"email":"{{email}}"}
+
+### Register your own account. Replace emailCode with the code from your inbox.
 POST {{baseUrl}}/api/v1/auth/register
 Content-Type: application/json
 
-{"username":"researcher","password":"choose-your-own-password"}
+{"username":"researcher","password":"choose-your-own-password","email":"{{email}}","email_code":"{{emailCode}}"}
 
 ### Login
 POST {{baseUrl}}/api/v1/auth/login
 Content-Type: application/json
 
 {"username":"researcher","password":"choose-your-own-password"}
+
+### Request a password reset code using the account's verified email
+POST {{baseUrl}}/api/v1/auth/password-reset/email-code
+Content-Type: application/json
+
+{"email":"{{email}}"}
+
+### Reset the password. Replace resetCode with the reset code from your inbox.
+POST {{baseUrl}}/api/v1/auth/password-reset
+Content-Type: application/json
+
+{"email":"{{email}}","email_code":"{{resetCode}}","password":"choose-a-new-password"}
 
 ### Current user
 GET {{baseUrl}}/api/v1/auth/me

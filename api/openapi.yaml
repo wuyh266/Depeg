@@ -112,6 +112,56 @@
         }
       }
     },
+    "/api/v1/auth/register/email-code": {
+      "post": {
+        "operationId": "sendRegistrationEmailCode",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 254
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Email accepted by the SMTP server. The registration code is valid for 10 minutes."
+          },
+          "400": {
+            "description": "Invalid email address or request body",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "429": {
+            "description": "Wait 60 seconds between sends to the same address. A source may send at most 10 codes per 10-minute window.",
+            "headers": {
+              "Retry-After": { "schema": { "type": "integer" } }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "503": {
+            "description": "SMTP or MySQL unavailable",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/register": {
       "post": {
         "operationId": "register",
@@ -121,7 +171,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/Credentials"
+                "$ref": "#/components/schemas/Registration"
               }
             }
           }
@@ -138,7 +188,7 @@
             }
           },
           "400": {
-            "description": "Invalid credentials format",
+            "description": "Invalid registration data, or incorrect, expired, used or locked verification code",
             "content": {
               "application/json": {
                 "schema": {
@@ -148,7 +198,7 @@
             }
           },
           "409": {
-            "description": "Username exists",
+            "description": "Username or email already in use",
             "content": {
               "application/json": {
                 "schema": {
@@ -165,6 +215,81 @@
                   "$ref": "#/components/schemas/Error"
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/password-reset/email-code": {
+      "post": {
+        "operationId": "requestPasswordReset",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email"],
+                "properties": {
+                  "email": { "type": "string", "format": "email", "maxLength": 254 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Request accepted. An eligible account may receive a reset code valid for 10 minutes."
+          },
+          "400": {
+            "description": "Invalid email address or request body",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "429": {
+            "description": "The shared source limit for email codes was reached",
+            "headers": {
+              "Retry-After": { "schema": { "type": "integer" } }
+            },
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "503": {
+            "description": "Email service or database unavailable",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/password-reset": {
+      "post": {
+        "operationId": "resetPassword",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PasswordReset" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Password changed and existing sessions revoked" },
+          "400": {
+            "description": "Invalid request or incorrect, expired, used or locked reset code",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "503": {
+            "description": "Database unavailable",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
           }
         }
@@ -1043,6 +1168,41 @@
             "format": "password",
             "writeOnly": true,
             "description": "8-72 UTF-8 bytes; stored using bcrypt."
+          }
+        }
+      },
+      "Registration": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Credentials" },
+          {
+            "type": "object",
+            "required": ["email", "email_code"],
+            "properties": {
+              "email": {
+                "type": "string",
+                "format": "email",
+                "maxLength": 254
+              },
+              "email_code": {
+                "type": "string",
+                "pattern": "^[0-9]{6}$",
+                "writeOnly": true
+              }
+            }
+          }
+        ]
+      },
+      "PasswordReset": {
+        "type": "object",
+        "required": ["email", "email_code", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "email_code": { "type": "string", "pattern": "^[0-9]{6}$", "writeOnly": true },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true,
+            "description": "New password, 8-72 UTF-8 bytes"
           }
         }
       },

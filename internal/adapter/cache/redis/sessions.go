@@ -11,7 +11,7 @@ import (
 type sessions struct{ client port.RedisClient }
 
 func NewSessionStore(client port.RedisClient) port.SessionStore { return &sessions{client: client} }
-func (*sessions) Save(context.Context, auth.Session) error {
+func (*sessions) Save(context.Context, auth.Session, string) error {
 	// TODO: Persist a refresh-token digest and session metadata.
 	return placeholder.ErrNotImplemented
 }

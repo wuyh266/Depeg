@@ -3,12 +3,15 @@ package httpserver_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"depeg.local/platform/internal/adapter/persistence/mysql"
+	"depeg.local/platform/internal/domain"
 	"depeg.local/platform/internal/domain/dataset"
 	"depeg.local/platform/internal/domain/market"
 	"depeg.local/platform/internal/domain/monitor"
@@ -105,7 +108,7 @@ func TestDashboardRulesReplayAndAccountIsolation(t *testing.T) {
 		t.Fatalf("second page %+v", page2)
 	}
 	credentials := map[string]string{"username": "another-user", "password": "another-password"}
-	status(t, request(t, f.handler, "POST", "/api/v1/auth/register", "", credentials), 201)
+	status(t, registerAccount(t, f, credentials), 201)
 	other := pair(t, request(t, f.handler, "POST", "/api/v1/auth/login", "", credentials))
 	otherOverview := monitorData[monitor.Overview](t, request(t, f.handler, "GET", "/api/v1/dashboard", other.AccessToken, nil))
 	for _, a := range otherOverview.Assets {
@@ -145,6 +148,49 @@ func TestDashboardRulesReplayAndAccountIsolation(t *testing.T) {
 	status(t, request(t, f.handler, "GET", "/api/v1/monitor/events?limit=101", tokens.AccessToken, nil), 400)
 }
 
+func TestDashboardRefreshReadsCommittedImport(t *testing.T) {
+	f := setup(t)
+	seedMonitor(t, f)
+	token := login(t, f).AccessToken
+	readStream := func() monitor.Stream {
+		t.Helper()
+		overview := monitorData[monitor.Overview](t, request(t, f.handler, "GET", "/api/v1/dashboard", token, nil))
+		for _, asset := range overview.Assets {
+			if asset.Asset.ID == "coingecko.test-usd" && asset.Selected != nil {
+				return *asset.Selected
+			}
+		}
+		t.Fatal("daily stream missing from dashboard")
+		return monitor.Stream{}
+	}
+	initial := readStream()
+	snapshot := market.Snapshot{AssetID: "coingecko.test-usd", Source: initial.Source,
+		Time: initial.LastAt.Add(24 * time.Hour), PriceUSD: "0.98", RawValues: "{}"}
+	batch := dataset.Batch{Snapshots: []market.Snapshot{snapshot, snapshot}}
+	ctx := context.Background()
+	repo := mysql.NewDatasetRepository(f.database)
+	if err := repo.Import(ctx, func(sink port.DatasetSink) error {
+		if err := sink.Write(ctx, batch); err != nil {
+			return err
+		}
+		return domain.ErrConflict
+	}); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected import rollback, got %v", err)
+	}
+	if rolledBack := readStream(); rolledBack.Count != initial.Count || !rolledBack.LastAt.Equal(initial.LastAt) {
+		t.Fatalf("dashboard observed rolled back import: %+v", rolledBack)
+	}
+	for range 2 {
+		if err := repo.Import(ctx, func(sink port.DatasetSink) error { return sink.Write(ctx, batch) }); err != nil {
+			t.Fatal(err)
+		}
+		got := readStream()
+		if got.Count != initial.Count+1 || !got.LastAt.Equal(snapshot.Time) || got.Latest.Price != snapshot.PriceUSD {
+			t.Fatalf("dashboard did not reflect committed import: %+v", got)
+		}
+	}
+}
+
 func TestEmbeddedWebAndSameOriginLogin(t *testing.T) {
 	f := setup(t)
 	for path, content := range map[string]string{"/": "稳定币", "/static/app.js": "renderChart", "/static/charts.js": "sampleExtrema", "/static/app.css": "color-scheme"} {
@@ -155,7 +201,9 @@ func TestEmbeddedWebAndSameOriginLogin(t *testing.T) {
 		}
 	}
 	status(t, request(t, f.handler, "GET", "/static/README.md", "", nil), 404)
-	body := strings.NewReader(`{"username":"same-origin","password":"a-strong-password"}`)
+	email := "same-origin@example.test"
+	code := sendRegistrationCode(t, f, email)
+	body := strings.NewReader(fmt.Sprintf(`{"username":"same-origin","password":"a-strong-password","email":%q,"email_code":%q}`, email, code))
 	req := httptest.NewRequest("POST", "http://example.com/api/v1/auth/register", body)
 	req.Header.Set("Origin", "http://example.com")
 	req.Header.Set("Content-Type", "application/json")

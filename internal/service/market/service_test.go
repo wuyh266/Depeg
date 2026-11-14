@@ -31,6 +31,10 @@ func (r *repositoryStub) ListAssets(
 	return r.assets, nil
 }
 
+func (*repositoryStub) AssetVersion(context.Context) (uint64, error) {
+	return 1, nil
+}
+
 // 缓存替身：每个测试可以分别指定读取、写入的行为。
 type cacheStub struct {
 	get func(context.Context) ([]entity.Asset, bool, error)
@@ -41,6 +45,7 @@ type cacheStub struct {
 
 func (c *cacheStub) GetAsset(
 	ctx context.Context,
+	_ uint64,
 ) ([]entity.Asset, bool, error) {
 	if c.get != nil {
 		return c.get(ctx)
@@ -51,6 +56,7 @@ func (c *cacheStub) GetAsset(
 
 func (c *cacheStub) SetAsset(
 	ctx context.Context,
+	_ uint64,
 	assets []entity.Asset,
 	ttl time.Duration,
 ) error {
@@ -62,7 +68,7 @@ func (c *cacheStub) SetAsset(
 	return nil
 }
 
-func (c *cacheStub) InvalidateAsset(context.Context) error {
+func (c *cacheStub) InvalidateAsset(context.Context, uint64) error {
 	return nil
 }
 

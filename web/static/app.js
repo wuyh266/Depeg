@@ -32,8 +32,13 @@ function clearAccount() {
 function toast(message) {
   const n=$('#toast');n.textContent=message;n.hidden=false;clearTimeout(state.toastTimer);state.toastTimer=setTimeout(()=>n.hidden=true,5500);
 }
-class APIError extends Error { constructor(message,status=0){super(message);this.status=status;} }
+class APIError extends Error { constructor(message,status=0,code){super(message);this.status=status;this.code=code;} }
 const messages={400:'参数不正确，请检查日期范围、锚定价与阈值。',401:'登录已过期，请重新登录。',403:'当前访问来源未获允许，请通过后端服务地址打开网页。',404:'没有找到对应记录。',409:'记录已存在或检测规则发生变化，请刷新后重试。',503:'数据库或服务暂不可用。请确认 MySQL 已启动，并执行过最新数据库迁移。'};
+const verificationMessages={
+  invalid_email_code:'验证码不正确、已过期或已达到尝试上限，请核对验证码或重新发送。',
+  email_code_cooldown:'验证码发送间隔为 60 秒，请稍后再试。',
+  email_send_limit:'验证码请求过于频繁，请稍后再试。'
+};
 
 async function raw(path,{method='GET',body,token,signal}={}) {
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(new DOMException('请求超时','TimeoutError')),30000);
@@ -43,7 +48,7 @@ async function raw(path,{method='GET',body,token,signal}={}) {
     const response=await fetch('/api/v1'+path,{method,headers,body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal,cache:'no-store',credentials:'omit'});
     if(response.status===204)return null;
     let result;try{result=await response.json();}catch{throw new APIError('服务返回了无法读取的响应。',response.status);}
-    if(!response.ok)throw new APIError(messages[response.status]??'请求失败，请稍后重试。',response.status);
+    if(!response.ok)throw new APIError(messages[response.status]??'请求失败，请稍后重试。',response.status,result?.error?.code);
     return result.data;
   } catch(error) {
     if(signal?.aborted)throw new DOMException('已取消','AbortError');
@@ -69,23 +74,107 @@ async function api(path,options={}) {
   }
 }
 
-function renderAuth(message='',register=false) {
-  $('#app').innerHTML=`<div class="auth-layout"><section class="auth-story"><a class="brand" href="#/overview">${brand}</a><div><div class="eyebrow">FOLLOW THE PEG. UNDERSTAND THE CHANGE.</div><h1>观察价格，<br>也看见<span>偏离。</span></h1><p class="intro">从一条价格曲线，到每一次阈值命中。让稳定币历史数据成为可查、可比、可回看的记录。</p></div><div class="orbit" aria-hidden="true"></div><p class="story-bottom">历史行情研究 · 数据来源可追溯 · UTC 时间</p></section><main id="main" class="auth-side"><section class="auth-box"><div class="eyebrow">YOUR RESEARCH WORKSPACE</div><h2>${register?'创建研究账号':'欢迎回到观察台'}</h2><p>登录后查看已导入的数据，保存你的监测阈值。</p><div class="auth-tabs" role="tablist" aria-label="账号操作"><button class="auth-tab ${register?'':'active'}" role="tab" aria-selected="${!register}" id="login-tab">登录</button><button class="auth-tab ${register?'active':''}" role="tab" aria-selected="${register}" id="register-tab">注册</button></div><form class="auth-form" id="auth-form"><label>用户名<input id="username" name="username" autocomplete="username" required minlength="3" maxlength="32" pattern="${h(usernamePattern)}" placeholder="3–32 位英文、数字或 _ . -"></label><label>密码<input id="password" name="password" type="password" autocomplete="${register?'new-password':'current-password'}" required minlength="8" maxlength="72" placeholder="至少 8 位"></label><p id="auth-message" class="form-message" role="alert">${h(message)}</p><button class="button primary" type="submit">${register?'注册并进入观察台':'登录观察台'} <span aria-hidden="true">↗</span></button></form><p class="auth-footer">账号用于保存个人阈值与检测记录。页面展示实际导入的数据，时间与数据来源均会标明。</p></section></main></div>`;
-  // The v-mode HTML pattern grammar requires a literal hyphen to be escaped.
-  $('#username').setAttribute('pattern',usernamePattern);
-  $('#login-tab').onclick=()=>renderAuth('',false);$('#register-tab').onclick=()=>renderAuth('',true);
-  $('#auth-form').onsubmit=async event=>{
-    event.preventDefault();const submit=event.currentTarget.querySelector('[type=submit]'),message=$('#auth-message');
-    const username=$('#username').value.trim().toLowerCase(),password=$('#password').value;
-    if(new TextEncoder().encode(password).length>72){message.textContent='密码的 UTF-8 长度不能超过 72 字节。';return;}
-    submit.disabled=true;message.textContent='';
+function renderAuth(message='',mode='login',success=false) {
+  const register=mode==='register',reset=mode==='reset';
+  const emailFields=register||reset?`
+    <label>${reset?'已验证的邮箱':'邮箱'}<input id="email" name="email" type="email" autocomplete="email" required maxlength="254" placeholder="${reset?'填写账号已验证的邮箱':'填写可以收信的邮箱'}"></label>
+    <div class="auth-code">
+      <label>邮箱验证码<input id="email-code" name="email_code" type="text" autocomplete="one-time-code" inputmode="numeric" required pattern="[0-9]{6}" maxlength="6" placeholder="6 位数字"></label>
+      <button class="button" id="send-email-code" type="button">${reset?'发送重置码':'发送验证码'}</button>
+    </div>`:'';
+  const passwordFields=`<label>${reset?'新密码':'密码'}<input id="password" name="password" type="password" autocomplete="${register||reset?'new-password':'current-password'}" required maxlength="72" placeholder="8–72 字节"></label>
+    ${reset?'<label>确认新密码<input name="password_confirmation" type="password" autocomplete="new-password" required maxlength="72"></label>':''}`;
+  const credentials=reset?'':`<label>用户名<input id="username" name="username" autocomplete="username" required minlength="3" maxlength="32" pattern="${h(usernamePattern)}" placeholder="3–32 位英文、数字或 _ . -"></label>${passwordFields}`;
+  const tabs=`<div class="auth-tabs" role="tablist" aria-label="账号操作"><button class="auth-tab ${register?'':'active'}" role="tab" aria-selected="${!register}" id="login-tab">登录</button><button class="auth-tab ${register?'active':''}" role="tab" aria-selected="${register}" id="register-tab">注册</button></div>`;
+  $('#app').innerHTML=`<div class="auth-layout"><section class="auth-story"><a class="brand" href="#/overview">${brand}</a><div><div class="eyebrow">FOLLOW THE PEG. UNDERSTAND THE CHANGE.</div><h1>观察价格，<br>也看见<span>偏离。</span></h1><p class="intro">从一条价格曲线，到每一次阈值命中。让稳定币历史数据成为可查、可比、可回看的记录。</p></div><div class="orbit" aria-hidden="true"></div><p class="story-bottom">历史行情研究 · 数据来源可追溯 · UTC 时间</p></section><main id="main" class="auth-side"><section class="auth-box"><div class="eyebrow">YOUR RESEARCH WORKSPACE</div><h2>${reset?'重置密码':register?'创建研究账号':'欢迎回到观察台'}</h2><p>${reset?'通过已验证的邮箱接收验证码，然后设置新密码。':'登录后查看已导入的数据，保存你的监测阈值。'}</p>${reset?'':tabs}<form class="auth-form" id="auth-form">
+    ${credentials}${emailFields}${reset?passwordFields:''}
+    <p id="auth-message" class="form-message${success?' positive':''}" role="status">${h(message)}</p>
+    <button class="button primary" type="submit">${reset?'重置密码':register?'注册并进入观察台':'登录观察台'} <span aria-hidden="true">↗</span></button>
+    ${register?'':`<button id="auth-mode-link" class="text-button" type="button">${reset?'返回登录':'忘记密码？'}</button>`}
+    </form><p class="auth-footer">账号用于保存个人阈值与检测记录。页面展示实际导入的数据，时间与数据来源均会标明。</p></section></main></div>`;
+  if(!reset) {
+    $('#login-tab').onclick=()=>renderAuth();
+    $('#register-tab').onclick=()=>renderAuth('','register');
+  }
+  if(!register){
+    $('#auth-mode-link').onclick=()=>{
+      renderAuth('',reset?'login':'reset');
+      $(reset?'#username':'#email').focus();
+    };
+  }
+  const form=$('#auth-form'),submit=form.querySelector('[type=submit]'),feedback=$('#auth-message');
+  const email=$('#email'),emailCode=$('#email-code'),send=$('#send-email-code');
+  const resendByEmail=new Map();
+  let sending=false,submitting=false,cooldownTimer;
+  function showAuthMessage(text,success=false) {
+    feedback.textContent=text;
+    feedback.classList.toggle('positive',success);
+  }
+  function updateSendButton() {
+    if(!send?.isConnected)return;
+    const resendAt=resendByEmail.get(email.value.trim())??0;
+    const seconds=Math.max(0,Math.ceil((resendAt-Date.now())/1000));
+    send.disabled=sending||submitting||seconds>0;
+    send.textContent=sending?'发送中…':seconds>0?`${seconds} 秒后重发`:reset?'发送重置码':'发送验证码';
+    clearTimeout(cooldownTimer);
+    if(seconds>0)cooldownTimer=setTimeout(updateSendButton,1000);
+  }
+  if(send) {
+    email.addEventListener('input',()=>{emailCode.value='';showAuthMessage('');updateSendButton();});
+    send.onclick=async()=>{
+      if(sending||submitting||!email.reportValidity())return;
+      const recipient=email.value.trim();
+      sending=true;email.readOnly=true;updateSendButton();showAuthMessage('');
+      try {
+        const path=reset?'/auth/password-reset/email-code':'/auth/register/email-code';
+        await raw(path,{method:'POST',body:{email:recipient}});
+        resendByEmail.set(recipient,Date.now()+60000);
+        if(!reset)emailCode.value='';
+        showAuthMessage(reset?'如果该邮箱已验证，你将收到重置码。验证码 10 分钟内有效。':'验证码已发送，10 分钟内有效。请查看收件箱或垃圾邮件。',true);
+        if(emailCode.isConnected)emailCode.focus();
+      } catch(error) {
+        if(error.code==='email_code_cooldown')resendByEmail.set(recipient,Date.now()+60000);
+        showAuthMessage(verificationMessages[error.code]??(error.status===400?'请填写有效的邮箱地址。':error.status===503?'暂时无法发送验证码，请稍后重试或联系管理员。':error.message));
+      } finally {
+        sending=false;email.readOnly=false;updateSendButton();
+      }
+    };
+  }
+  form.onsubmit=async event=>{
+    event.preventDefault();
+    if(submitting)return;
+    if(sending){showAuthMessage('正在发送验证码，请稍候。');return;}
+    const password=form.elements.password.value;
+    const passwordBytes=new TextEncoder().encode(password).length;
+    if(passwordBytes<8||passwordBytes>72){showAuthMessage('密码的 UTF-8 长度应为 8–72 字节。');return;}
+    if(reset&&password!==form.elements.password_confirmation.value){showAuthMessage('两次输入的新密码不一致。');return;}
+    const username=reset?'':form.elements.username.value.trim().toLowerCase();
+    submitting=true;submit.disabled=true;updateSendButton();showAuthMessage('');
+    let registered=false;
     try {
-      if(register)await raw('/auth/register',{method:'POST',body:{username,password}});
+      if(reset){
+        await raw('/auth/password-reset',{method:'POST',body:{email:email.value.trim(),email_code:emailCode.value,password}});
+        if(form.isConnected){
+          clearAccount();
+          renderAuth('密码已重置，请用新密码登录。','login',true);
+          $('#username').focus();
+        }
+        return;
+      }
+      if(register){
+        await raw('/auth/register',{method:'POST',body:{username,password,email:email.value.trim(),email_code:emailCode.value}});
+        registered=true;
+      }
       const tokens=await raw('/auth/login',{method:'POST',body:{username,password}});saveTokens(tokens);
       state.user=await api('/auth/me');state.overview=null;renderShell();
-      if(!location.hash.startsWith('#/'))location.hash='#/overview';else await renderRoute();
-    } catch(error) {message.textContent=error.status===409?'该用户名已被使用，请更换用户名或直接登录。':error.status===401?'用户名或密码不正确。':error.message;}
-    finally{submit.disabled=false;}
+    } catch(error) {
+      if(registered){renderAuth('账号已创建，请用用户名和密码登录。');$('#username').value=username;return;}
+      showAuthMessage(verificationMessages[error.code]??(error.status===409?'用户名或邮箱已被使用，请核对后重试。':error.status===401?'用户名或密码不正确。':error.status===400?(reset?'请检查邮箱、验证码和新密码。':'请检查账号信息。'):error.message));
+      return;
+    } finally {
+      submitting=false;submit.disabled=false;updateSendButton();
+    }
+    if(!location.hash.startsWith('#/'))location.hash='#/overview';else await renderRoute();
   };
 }
 

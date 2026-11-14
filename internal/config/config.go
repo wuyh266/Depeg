@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/url"
 	"os"
 	"regexp"
@@ -20,6 +21,7 @@ type Settings struct {
 	MySQL  MySQL  `yaml:"mysql"`
 	Redis  Redis  `yaml:"redis"`
 	JWT    JWT    `yaml:"jwt"`
+	SMTP   SMTP   `yaml:"smtp"`
 	Python Python `yaml:"python"`
 	Worker Worker `yaml:"worker"`
 	Log    Log    `yaml:"log"`
@@ -52,6 +54,48 @@ type JWT struct {
 	AccessTTL  time.Duration `yaml:"access_ttl"`
 	RefreshTTL time.Duration `yaml:"refresh_ttl"`
 }
+type SMTP struct {
+	Address  string `yaml:"address"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	From     string `yaml:"from"`
+	TLSMode  string `yaml:"tls_mode"`
+}
+
+func (s *SMTP) validate() error {
+	if s.Address == "" {
+		if s.Username != "" || s.Password != "" || s.From != "" {
+			return fmt.Errorf("SMTP_ADDRESS is required when SMTP credentials or sender are set")
+		}
+		return nil
+	}
+	host, port, err := net.SplitHostPort(s.Address)
+	portNumber, portErr := strconv.Atoi(port)
+	if err != nil || host == "" || strings.ContainsAny(host, " \t\r\n") || portErr != nil || portNumber < 1 || portNumber > 65535 {
+		return fmt.Errorf("SMTP_ADDRESS must be host:port")
+	}
+	if (s.Username == "") != (s.Password == "") {
+		return fmt.Errorf("SMTP_USERNAME and SMTP_PASSWORD must be configured together")
+	}
+	if s.From == "" {
+		s.From = s.Username
+	}
+	from, err := mail.ParseAddress(s.From)
+	if err != nil || from.Address != s.From || strings.ContainsAny(s.From, "\r\n") {
+		return fmt.Errorf("SMTP_FROM must be a single email address")
+	}
+	switch s.TLSMode {
+	case "tls", "starttls":
+	case "none":
+		if ip := net.ParseIP(host); !ip.IsLoopback() || s.Username != "" {
+			return fmt.Errorf("SMTP_TLS_MODE=none requires a loopback IP and no SMTP credentials")
+		}
+	default:
+		return fmt.Errorf("SMTP_TLS_MODE must be tls, starttls, or none")
+	}
+	return nil
+}
+
 type Python struct {
 	BaseURL string        `yaml:"base_url"`
 	Timeout time.Duration `yaml:"timeout"`
@@ -72,6 +116,17 @@ type loader struct{}
 func NewLoader() Loader { return &loader{} }
 
 func (*loader) Load(ctx context.Context) (Settings, error) {
+	return load(ctx, false)
+}
+
+// LoadDatabase lets offline commands read MySQL and logging settings without
+// needing the API's authentication, HTTP or Redis settings.
+func LoadDatabase(ctx context.Context) (MySQL, Log, error) {
+	settings, err := load(ctx, true)
+	return settings.MySQL, settings.Log, err
+}
+
+func load(ctx context.Context, databaseOnly bool) (Settings, error) {
 	if err := ctx.Err(); err != nil {
 		return Settings{}, err
 	}
@@ -79,8 +134,9 @@ func (*loader) Load(ctx context.Context) (Settings, error) {
 		HTTP:  HTTP{Address: "127.0.0.1:8080", ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, ShutdownTimeout: 15 * time.Second},
 		MySQL: MySQL{MaxOpenConns: 20, MaxIdleConns: 5, ConnMaxLifetime: 30 * time.Minute},
 		JWT:   JWT{Issuer: "depeg-platform", Audience: "depeg-web", AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour},
+		SMTP:  SMTP{TLSMode: "tls"},
 		Log:   Log{Level: "info"},
-		Redis: Redis{Timeout: 300*time.Millisecond},
+		Redis: Redis{Timeout: 300 * time.Millisecond},
 	}
 	values := map[string]string{}
 	envFile := os.Getenv("ENV_FILE")
@@ -156,12 +212,31 @@ func (*loader) Load(ctx context.Context) (Settings, error) {
 			*field = value
 		}
 	}
-	override("HTTP_ADDRESS", &settings.HTTP.Address)
 	override("MYSQL_DSN", &settings.MySQL.DSN)
+	override("LOG_LEVEL", &settings.Log.Level)
+	if settings.MySQL.DSN == "" {
+		return Settings{}, fmt.Errorf("MYSQL_DSN is required; configure the project .env")
+	}
+	if settings.MySQL.MaxOpenConns < 1 || settings.MySQL.MaxIdleConns < 0 || settings.MySQL.MaxIdleConns > settings.MySQL.MaxOpenConns || settings.MySQL.ConnMaxLifetime <= 0 {
+		return Settings{}, fmt.Errorf("invalid database pool limits")
+	}
+	switch settings.Log.Level {
+	case "debug", "info", "warn", "error":
+	default:
+		return Settings{}, fmt.Errorf("invalid log level")
+	}
+	if databaseOnly {
+		return settings, nil
+	}
+	override("HTTP_ADDRESS", &settings.HTTP.Address)
 	override("JWT_ISSUER", &settings.JWT.Issuer)
 	override("JWT_AUDIENCE", &settings.JWT.Audience)
 	override("JWT_SIGNING_KEY", &settings.JWT.SigningKey)
-	override("LOG_LEVEL", &settings.Log.Level)
+	override("SMTP_ADDRESS", &settings.SMTP.Address)
+	override("SMTP_USERNAME", &settings.SMTP.Username)
+	override("SMTP_PASSWORD", &settings.SMTP.Password)
+	override("SMTP_FROM", &settings.SMTP.From)
+	override("SMTP_TLS_MODE", &settings.SMTP.TLSMode)
 	override("REDIS_ADDRESS", &settings.Redis.Address)
 	override("REDIS_USERNAME", &settings.Redis.Username)
 	override("REDIS_PASSWORD", &settings.Redis.Password)
@@ -193,9 +268,6 @@ func (*loader) Load(ctx context.Context) (Settings, error) {
 			*field = duration
 		}
 	}
-	if settings.MySQL.DSN == "" {
-		return Settings{}, fmt.Errorf("MYSQL_DSN is required; configure the project .env")
-	}
 	if len(settings.JWT.SigningKey) < 32 {
 		return Settings{}, fmt.Errorf("JWT_SIGNING_KEY must contain at least 32 bytes")
 	}
@@ -211,9 +283,6 @@ func (*loader) Load(ctx context.Context) (Settings, error) {
 	if settings.HTTP.ReadTimeout <= 0 || settings.HTTP.WriteTimeout <= 0 || settings.HTTP.IdleTimeout <= 0 || settings.HTTP.ShutdownTimeout <= 0 {
 		return Settings{}, fmt.Errorf("HTTP timeouts must be positive")
 	}
-	if settings.MySQL.MaxOpenConns < 1 || settings.MySQL.MaxIdleConns < 0 || settings.MySQL.MaxIdleConns > settings.MySQL.MaxOpenConns || settings.MySQL.ConnMaxLifetime <= 0 {
-		return Settings{}, fmt.Errorf("invalid database pool limits")
-	}
 	for i, origin := range settings.HTTP.AllowedOrigins {
 		origin = strings.TrimSpace(origin)
 		parsed, err := url.Parse(origin)
@@ -222,10 +291,8 @@ func (*loader) Load(ctx context.Context) (Settings, error) {
 		}
 		settings.HTTP.AllowedOrigins[i] = origin
 	}
-	switch settings.Log.Level {
-	case "debug", "info", "warn", "error":
-	default:
-		return Settings{}, fmt.Errorf("invalid log level")
+	if err := settings.SMTP.validate(); err != nil {
+		return Settings{}, err
 	}
 	return settings, nil
 }

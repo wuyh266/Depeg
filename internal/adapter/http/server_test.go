@@ -43,12 +43,13 @@ type fixture struct {
 	database   mysql.Database
 	repository port.MarketRepository
 	settings   config.Settings
+	mailer     *registrationMailbox
 }
 
 func setup(t *testing.T) *fixture {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "backend.sqlite")), &gorm.Config{Logger: gormlog.Default.LogMode(gormlog.Silent)})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "backend.sqlite")), &gorm.Config{Logger: gormlog.Default.LogMode(gormlog.Silent), TranslateError: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,6 +61,12 @@ func setup(t *testing.T) *fixture {
 	if err := db.AutoMigrate(mysql.SchemaModels()...); err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Exec("CREATE TABLE data_versions (name VARCHAR(64) PRIMARY KEY, version BIGINT NOT NULL)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec("INSERT INTO data_versions (name, version) VALUES ('assets', 1)").Error; err != nil {
+		t.Fatal(err)
+	}
 	settings := config.Settings{HTTP: config.HTTP{Address: "127.0.0.1:0", ReadTimeout: time.Second, WriteTimeout: time.Second, IdleTimeout: time.Second, ShutdownTimeout: time.Second, AllowedOrigins: []string{"http://localhost:5173"}}, JWT: config.JWT{Issuer: "tests", Audience: "test-web", SigningKey: strings.Repeat("s", 32), AccessTTL: 15 * time.Minute, RefreshTTL: time.Hour}, Log: config.Log{Level: "error"}}
 	logger := logging.New(settings.Log)
 	database, err := mysql.FromGORM(db, logger)
@@ -68,11 +75,17 @@ func setup(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	repository := mysql.NewMarketRepository(database)
-	authentication := authservice.New(mysql.NewUserRepository(database), password.New(), jwtadapter.New(settings.JWT), mysql.NewSessionStore(database))
-	markets := marketservice.New(repository,nil,nil)
+	mailer := &registrationMailbox{codes: make(map[string]string), resets: make(chan resetEmail, 1)}
+	authentication := testAuth(database, settings, mailer)
+	markets := marketservice.New(repository, nil, nil)
 	handlers := handler.New(authentication, markets, riskservice.New(mysql.NewRiskRepository(database)), monitorservice.New(mysql.NewMonitorRepository(database), markets), database, logger)
 	server := httpserver.New(settings.HTTP, handlers, middleware.NewJWT(authentication), logger)
-	return &fixture{handler: server.Handler(), database: database, repository: repository, settings: settings}
+	return &fixture{handler: server.Handler(), database: database, repository: repository, settings: settings, mailer: mailer}
+}
+
+func testAuth(database mysql.Database, settings config.Settings, mailer port.EmailCodeMailer) port.AuthService {
+	return authservice.New(mysql.NewUserRepository(database), password.New(), jwtadapter.New(settings.JWT), mysql.NewSessionStore(database),
+		mysql.NewRegistrationCodes(database), mysql.NewPasswordResetCodes(database), mailer, settings.JWT.SigningKey)
 }
 func request(t *testing.T, router http.Handler, method, path, token string, body any) *httptest.ResponseRecorder {
 	t.Helper()
@@ -120,7 +133,7 @@ func pair(t *testing.T, r *httptest.ResponseRecorder) auth.TokenPair {
 func login(t *testing.T, f *fixture) auth.TokenPair {
 	t.Helper()
 	credentials := map[string]string{"username": "researcher", "password": "correct-password"}
-	status(t, request(t, f.handler, "POST", "/api/v1/auth/register", "", credentials), 201)
+	status(t, registerAccount(t, f, credentials), 201)
 	r := request(t, f.handler, "POST", "/api/v1/auth/login", "", credentials)
 	status(t, r, 200)
 	return pair(t, r)
@@ -128,12 +141,13 @@ func login(t *testing.T, f *fixture) auth.TokenPair {
 func TestBackendAuthenticationAndHistoricalTrends(t *testing.T) {
 	f := setup(t)
 	credentials := map[string]string{"username": "Researcher", "password": "correct-password"}
-	registration := request(t, f.handler, "POST", "/api/v1/auth/register", "", credentials)
+	registration := registerAccount(t, f, credentials)
 	status(t, registration, 201)
 	if strings.Contains(registration.Body.String(), "password") {
 		t.Fatal("registration leaked password fields")
 	}
-	status(t, request(t, f.handler, "POST", "/api/v1/auth/register", "", credentials), 409)
+	email := strings.ToLower(credentials["username"]) + "@example.test"
+	status(t, request(t, f.handler, "POST", "/api/v1/auth/register", "", registrationBody(credentials, email, f.mailer.codes[email])), 409)
 	status(t, request(t, f.handler, "POST", "/api/v1/auth/login", "", map[string]string{"username": "researcher", "password": "wrong-password"}), 401)
 	r := request(t, f.handler, "POST", "/api/v1/auth/login", "", credentials)
 	status(t, r, 200)
@@ -207,7 +221,7 @@ func TestBackendAuthenticationAndHistoricalTrends(t *testing.T) {
 	status(t, request(t, f.handler, "GET", "/api/v1/trends?asset_id=missing", tokens.AccessToken, nil), 404)
 	status(t, request(t, f.handler, "GET", "/api/v1/risks?asset_id=usdc-ethereum", tokens.AccessToken, nil), 503)
 	// Reconstruct services against the same database: authentication survives a process restart.
-	again := authservice.New(mysql.NewUserRepository(f.database), password.New(), jwtadapter.New(f.settings.JWT), mysql.NewSessionStore(f.database))
+	again := testAuth(f.database, f.settings, f.mailer)
 	if _, err := again.Authenticate(context.Background(), tokens.AccessToken); err != nil {
 		t.Fatal(err)
 	}
@@ -272,8 +286,8 @@ func TestDisabledAccountsAndRequestBoundaries(t *testing.T) {
 func TestServerRunStopsOnCancellation(t *testing.T) {
 	f := setup(t)
 	logger := logging.New(f.settings.Log)
-	authentication := authservice.New(mysql.NewUserRepository(f.database), password.New(), jwtadapter.New(f.settings.JWT), mysql.NewSessionStore(f.database))
-	markets := marketservice.New(f.repository,nil,nil)
+	authentication := testAuth(f.database, f.settings, f.mailer)
+	markets := marketservice.New(f.repository, nil, nil)
 	handlers := handler.New(authentication, markets, riskservice.New(mysql.NewRiskRepository(f.database)), monitorservice.New(mysql.NewMonitorRepository(f.database), markets), f.database, logger)
 	server := httpserver.New(f.settings.HTTP, handlers, middleware.NewJWT(authentication), logger)
 	ctx, cancel := context.WithCancel(context.Background())

@@ -10,6 +10,7 @@ type MarketRepository interface {
 	ListAssets(context.Context) ([]market.Asset, error)
 	Trend(context.Context, market.Query) (market.Trend, error)
 	Snapshots(context.Context, market.Query) (market.SnapshotSeries, error)
+	LatestOpenTime(ctx context.Context, assetID, source string, interval time.Duration) (openTime time.Time, found bool, err error)
 	UpsertCandles(context.Context, []market.Candle) error
 	Import(context.Context, market.Asset, []market.Candle) error
 	AssetVersion(context.Context) (uint64, error)

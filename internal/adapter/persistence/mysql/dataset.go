@@ -6,8 +6,8 @@ import (
 	"depeg.local/platform/internal/domain/dataset"
 	"depeg.local/platform/internal/port"
 	"encoding/json"
-	"errors"
-	"gorm.io/gorm"
+	"time"
+
 	"gorm.io/gorm/clause"
 )
 
@@ -38,18 +38,19 @@ func (s *datasetSink) Write(ctx context.Context, batch dataset.Batch) error {
 	}
 	if batch.Asset != nil {
 		a := batch.Asset
-		var existing assetModel
-		err := db.Where("id = ?", a.ID).Take(&existing).Error
-		if err == nil && existing.QuoteCurrency != a.QuoteCurrency {
-			return domain.ErrConflict
-		}
-		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return translate(err)
-		}
 		row := assetModel{ID: a.ID, Symbol: a.Symbol, Chain: a.Chain, TokenAddress: a.TokenAddress, QuoteCurrency: a.QuoteCurrency, AnchorPrice: a.AnchorPrice}
-		// Do not erase a manually verified anchor, chain or contract on reimport.
-		if err := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoUpdates: clause.AssignmentColumns([]string{"symbol", "updated_at"})}).Create(&row).Error; err != nil {
+		// Create missing assets only. A duplicate ID keeps every existing setting.
+		if err := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "id"}}, DoNothing: true}).Create(&row).Error; err != nil {
 			return translate(err)
+		}
+		var existing assetModel
+		// Read the current row, including a concurrent insert, in this transaction.
+		if err := db.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Select("quote_currency").Where("id = ?", a.ID).Take(&existing).Error; err != nil {
+			return translate(err)
+		}
+		if existing.QuoteCurrency != a.QuoteCurrency {
+			return domain.ErrConflict
 		}
 	}
 	if err := NewMarketRepository(s.database).UpsertCandles(ctx, batch.Candles); err != nil {
@@ -68,8 +69,16 @@ func (s *datasetSink) Write(ctx context.Context, batch dataset.Batch) error {
 			}
 			rows = append(rows, snapshotModel{AssetID: point.AssetID, Source: point.Source, ObservedAt: point.Time.UTC(), PriceUSD: point.PriceUSD, MarketCapUSD: point.MarketCapUSD, Volume24hUSD: point.Volume24hUSD, QualityFlags: string(encoded), RawValues: point.RawValues})
 		}
-		if err := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "asset_id"}, {Name: "source"}, {Name: "observed_at"}}, DoUpdates: clause.AssignmentColumns([]string{"price_usd", "market_cap_usd", "volume24h_usd", "quality_flags", "raw_values", "updated_at"})}).CreateInBatches(rows, 100).Error; err != nil {
-			return translate(err)
+		conflict := clause.OnConflict{
+			Columns:   []clause.Column{{Name: "asset_id"}, {Name: "source"}, {Name: "observed_at"}},
+			DoUpdates: clause.AssignmentColumns([]string{"price_usd", "market_cap_usd", "volume24h_usd", "quality_flags", "raw_values", "updated_at"}),
+		}
+		if err := writeMarketStreams(db, rows, 100, func(row snapshotModel) (streamKey, time.Time) {
+			return streamKey{AssetID: row.AssetID, Kind: "daily", Source: row.Source, IntervalSeconds: 86400}, row.ObservedAt
+		}, func(batch []snapshotModel) error {
+			return translate(db.Clauses(conflict).Create(&batch).Error)
+		}); err != nil {
+			return err
 		}
 	}
 	if len(batch.News) > 0 {

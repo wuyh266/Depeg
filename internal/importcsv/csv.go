@@ -43,22 +43,29 @@ func Read(ctx context.Context, input io.Reader, a market.Asset, source string, i
 	return ReadWithTimezone(ctx, input, a, source, interval, time.UTC)
 }
 
-func ReadWithTimezone(ctx context.Context, input io.Reader, a market.Asset, source string, interval time.Duration, location *time.Location) ([]market.Candle, error) {
-	if location == nil {
-		return nil, domain.ErrInvalid
-	}
-	if a.AnchorPrice == nil {
-		return nil, fmt.Errorf("%w: CSV requires an explicit anchor", domain.ErrInvalid)
-	}
-	anchor, err := number(*a.AnchorPrice)
-	if !marketservice.AssetIDPattern.MatchString(a.ID) || !symbol.MatchString(a.Symbol) || !quote.MatchString(a.QuoteCurrency) || len(a.Chain) > 64 || len(a.TokenAddress) > 128 || err != nil || anchor.Sign() <= 0 || !marketservice.SourcePattern.MatchString(source) {
-		return nil, fmt.Errorf("%w: invalid asset or source metadata", domain.ErrInvalid)
-	}
+func SupportedInterval(interval time.Duration) bool {
 	switch interval {
 	case time.Minute, 5 * time.Minute, 15 * time.Minute, time.Hour, 24 * time.Hour:
+		return true
 	default:
+		return false
+	}
+}
+
+func ReadWithTimezone(ctx context.Context, input io.Reader, a market.Asset, source string, interval time.Duration, location *time.Location) ([]market.Candle, error) {
+	if location == nil || !SupportedInterval(interval) {
 		return nil, domain.ErrInvalid
 	}
+	if !marketservice.AssetIDPattern.MatchString(a.ID) || !symbol.MatchString(a.Symbol) || !quote.MatchString(a.QuoteCurrency) || len(a.Chain) > 64 || len(a.TokenAddress) > 128 || !marketservice.SourcePattern.MatchString(source) {
+		return nil, fmt.Errorf("%w: invalid asset or source metadata", domain.ErrInvalid)
+	}
+	if a.AnchorPrice != nil {
+		anchor, err := number(*a.AnchorPrice)
+		if err != nil || anchor.Sign() <= 0 {
+			return nil, fmt.Errorf("%w: anchor must be a positive decimal", domain.ErrInvalid)
+		}
+	}
+	closeCutoff := time.Now().UTC().Truncate(interval)
 	reader := csv.NewReader(input)
 	reader.ReuseRecord = true
 	header, err := reader.Read()
@@ -129,8 +136,11 @@ func ReadWithTimezone(ctx context.Context, input io.Reader, a market.Asset, sour
 			}
 			observed = parsed.UTC()
 		}
-		if observed.IsZero() || observed.Year() < 1970 || observed.After(time.Now().Add(5*time.Minute)) || observed.Nanosecond() != 0 || observed.Unix()%int64(interval/time.Second) != 0 {
-			return nil, fmt.Errorf("%w: unaligned or future time at row %d", domain.ErrInvalid, line)
+		if observed.IsZero() || observed.Year() < 1970 || observed.Nanosecond() != 0 || observed.Unix()%int64(interval/time.Second) != 0 {
+			return nil, fmt.Errorf("%w: invalid or unaligned time at row %d", domain.ErrInvalid, line)
+		}
+		if !observed.Before(closeCutoff) {
+			return nil, fmt.Errorf("%w: candle has not closed at row %d", domain.ErrInvalid, line)
 		}
 		values := map[string]*big.Rat{}
 		for _, key := range []string{"open", "high", "low", "close", "volume"} {

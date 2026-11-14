@@ -41,6 +41,15 @@
 .trend-asset small{display:block;font-size:9px;color:var(--muted);max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .trend-feedback{padding:15px 24px 0;min-height:42px}
 .trend-feedback .form-message{font-size:11px;margin-top:7px;overflow-wrap:anywhere}
+.auth-code{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:10px}
+.auth-code input{width:100%}
+.auth-code .button{white-space:nowrap}
+.auth-form .form-message.positive{color:var(--accent)}
+.auth-form #auth-mode-link{justify-self:start}
+@media(max-width:680px){
+  .auth-layout{grid-template-columns:minmax(0,1fr)}
+  .auth-side{grid-template-columns:minmax(0,1fr);place-content:start stretch;justify-items:center}
+}
 .trend-feedback .button{margin-top:10px}
 .comparison-figure{margin:0;padding:3px 14px 13px}
 .comparison-chart{padding:0;min-height:390px}

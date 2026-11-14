@@ -31,12 +31,81 @@ func TestDatasetImportAgainstSQLite(t *testing.T) {
 	if err := raw.AutoMigrate(SchemaModels()...); err != nil {
 		t.Fatal(err)
 	}
+	if err := raw.Exec("CREATE TABLE data_versions (name VARCHAR(64) PRIMARY KEY, version BIGINT NOT NULL)").Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Exec("INSERT INTO data_versions (name, version) VALUES ('assets', 1)").Error; err != nil {
+		t.Fatal(err)
+	}
 	db, err := FromGORM(raw, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	verifyImportContract(t, raw, db)
+	verifyCollectorImportContract(t, raw, db)
+}
+
+func verifyCollectorImportContract(t *testing.T, raw *gorm.DB, db Database) {
+	t.Helper()
+	ctx := context.Background()
+	repo := NewMarketRepository(db)
+	asset := market.Asset{ID: "ccxt.usdc-usdt", Symbol: "USDC", QuoteCurrency: "USDT"}
+	open := time.Date(2023, 2, 1, 0, 0, 0, 0, time.UTC)
+	candle := market.Candle{AssetID: asset.ID, Source: "ccxt:okx", Interval: time.Minute, Time: open, Open: "1", High: "1.01", Low: "0.99", Close: "1", Quality: "historical"}
+	write := func(a market.Asset, candles ...market.Candle) error {
+		return NewDatasetRepository(db).Import(ctx, func(sink port.DatasetSink) error {
+			return sink.Write(ctx, dataset.Batch{Asset: &a, Candles: candles})
+		})
+	}
+	if _, found, err := repo.LatestOpenTime(ctx, asset.ID, candle.Source, candle.Interval); err != nil || found {
+		t.Fatalf("expected empty cursor: found=%v err=%v", found, err)
+	}
+	otherSource, otherInterval := candle, candle
+	otherSource.Source, otherSource.Time = "paper-csv:okx", open.Add(5*time.Minute)
+	otherInterval.Interval, otherInterval.Time = 5*time.Minute, open.Add(10*time.Minute)
+	if err := write(asset, candle, otherSource, otherInterval); err != nil {
+		t.Fatal(err)
+	}
+	var saved assetModel
+	if err := raw.Where("id = ?", asset.ID).Take(&saved).Error; err != nil || saved.AnchorPrice != nil || saved.QuoteCurrency != "USDT" {
+		t.Fatalf("new asset did not retain NULL anchor and USDT quote: %+v, %v", saved, err)
+	}
+	if err := raw.Model(&assetModel{}).Where("id = ?", asset.ID).
+		Updates(map[string]any{"symbol": "CUSTOM", "chain": "ethereum", "token_address": "0xverified", "anchor_price": "1.01"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	candle.Close = "1.01"
+	if err := write(asset, candle); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Where("id = ?", asset.ID).Take(&saved).Error; err != nil || saved.Symbol != "CUSTOM" ||
+		saved.Chain != "ethereum" || saved.TokenAddress != "0xverified" || saved.AnchorPrice == nil {
+		t.Fatalf("replay changed asset settings: %+v, %v", saved, err)
+	}
+	anchor, ok := new(big.Rat).SetString(*saved.AnchorPrice)
+	expected, _ := new(big.Rat).SetString("1.01")
+	if !ok || anchor.Cmp(expected) != 0 {
+		t.Fatalf("replay changed the verified anchor: %s", *saved.AnchorPrice)
+	}
+	var rows []candleModel
+	if err := raw.Where("asset_id = ? AND source = ? AND interval_seconds = ?", asset.ID, candle.Source, 60).Find(&rows).Error; err != nil || len(rows) != 1 {
+		t.Fatalf("replay should update a single candle: %v, %v", rows, err)
+	}
+	price, ok := new(big.Rat).SetString(rows[0].Close)
+	if !ok || price.Cmp(expected) != 0 {
+		t.Fatalf("replay did not apply the correction: %s", rows[0].Close)
+	}
+	wrongQuote := asset
+	wrongQuote.QuoteCurrency = "USD"
+	candle.Time = open.Add(time.Minute)
+	if err := write(wrongQuote, candle); !errors.Is(err, domain.ErrConflict) {
+		t.Fatalf("expected quote conflict: %v", err)
+	}
+	got, found, err := repo.LatestOpenTime(ctx, asset.ID, candle.Source, candle.Interval)
+	if err != nil || !found || !got.Equal(open) || got.Location() != time.UTC {
+		t.Fatalf("cursor advanced across sources, intervals or a rejected import: %s, %v, %v", got, found, err)
+	}
 }
 
 func verifyImportContract(t *testing.T, raw *gorm.DB, db Database) {
@@ -209,5 +278,64 @@ func TestMySQLMigrationResumeAndImport(t *testing.T) {
 		t.Fatal("repeat migration failed", err)
 	}
 	verifyImportContract(t, raw, db)
+	verifyCollectorImportContract(t, raw, db)
 	verifyMonitorContract(t, raw, db)
+	verifyConcurrentStreamWrites(t, db)
+}
+
+func verifyConcurrentStreamWrites(t *testing.T, db Database) {
+	t.Helper()
+	ctx := context.Background()
+	asset := market.Asset{ID: "concurrent-usd", Symbol: "RACE", QuoteCurrency: "USD"}
+	repo := NewMarketRepository(db)
+	if err := repo.Import(ctx, asset, nil); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	candle := market.Candle{AssetID: asset.ID, Source: "Fixture", Interval: time.Minute,
+		Open: "1", High: "1", Low: "1", Close: "1", Quality: "test"}
+	candle.Time = start.Add(600 * time.Microsecond)
+	release := make(chan struct{})
+	done := make(chan error, 2)
+	for _, offset := range []time.Duration{-time.Minute, time.Minute} {
+		go func() {
+			<-release
+			unique := candle
+			unique.Time = start.Add(offset)
+			done <- repo.UpsertCandles(ctx, []market.Candle{candle, unique})
+		}()
+	}
+	close(release)
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	latest := candle
+	latest.Time = start.Add(time.Minute)
+	latest.Close = "0.98"
+	latest.Source = "fixture"
+	if err := repo.UpsertCandles(ctx, []market.Candle{latest, latest}); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := NewMonitorRepository(db).Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range catalog {
+		if entry.Asset.ID != asset.ID {
+			continue
+		}
+		if len(entry.Streams) != 1 {
+			t.Fatalf("expected one stream: %+v", entry.Streams)
+		}
+		stream := entry.Streams[0]
+		if stream.Source != candle.Source || stream.Count != 3 ||
+			!stream.FirstAt.Equal(start.Add(-time.Minute)) || !stream.LastAt.Equal(latest.Time) ||
+			!strings.HasPrefix(stream.Latest.Price, "0.98") {
+			t.Fatalf("incorrect summary after concurrent inserts and replay: %+v", stream)
+		}
+		return
+	}
+	t.Fatal("concurrently imported asset missing from catalog")
 }

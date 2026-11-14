@@ -15,40 +15,25 @@ import (
 )
 
 type service struct {
-	users     port.UserRepository
-	passwords port.PasswordHasher
-	tokens    port.TokenManager
-	sessions  port.SessionStore
+	users             port.UserRepository
+	passwords         port.PasswordHasher
+	tokens            port.TokenManager
+	sessions          port.SessionStore
+	registrationCodes port.EmailCodeStore
+	resetCodes        port.EmailCodeStore
+	mailer            port.EmailCodeMailer
+	codeKey           []byte
+	resetMailSlots    chan struct{}
 }
 
 var usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]{2,31}$`)
 
-func New(users port.UserRepository, passwords port.PasswordHasher, tokens port.TokenManager, sessions port.SessionStore) port.AuthService {
-	return &service{users: users, passwords: passwords, tokens: tokens, sessions: sessions}
-}
-func (s *service) Register(ctx context.Context, input account.Credentials) (account.User, error) {
-	username := strings.ToLower(strings.TrimSpace(input.Username))
-	if !usernamePattern.MatchString(username) || len(input.Password) < 8 || len(input.Password) > 72 {
-		return account.User{}, domain.ErrInvalid
+func New(users port.UserRepository, passwords port.PasswordHasher, tokens port.TokenManager, sessions port.SessionStore, registrationCodes, resetCodes port.EmailCodeStore, mailer port.EmailCodeMailer, signingKey string) port.AuthService {
+	return &service{
+		users: users, passwords: passwords, tokens: tokens, sessions: sessions,
+		registrationCodes: registrationCodes, resetCodes: resetCodes, mailer: mailer,
+		codeKey: keyedDigest([]byte(signingKey), "depeg-registration-v1"), resetMailSlots: make(chan struct{}, 16),
 	}
-	if _, err := s.users.FindByUsername(ctx, username); err == nil {
-		return account.User{}, domain.ErrConflict
-	} else if !errors.Is(err, domain.ErrNotFound) {
-		return account.User{}, fmt.Errorf("%w: user lookup", domain.ErrUnavailable)
-	}
-	hash, err := s.passwords.Hash(ctx, input.Password)
-	if err != nil {
-		return account.User{}, err
-	}
-	id, err := identity.New()
-	if err != nil {
-		return account.User{}, err
-	}
-	user := account.User{ID: id, Username: username, PasswordHash: hash}
-	if err := s.users.Create(ctx, user); err != nil {
-		return account.User{}, err
-	}
-	return user, nil
 }
 func (s *service) Login(ctx context.Context, input account.Credentials) (account.TokenPair, error) {
 	username := strings.ToLower(strings.TrimSpace(input.Username))
@@ -70,7 +55,10 @@ func (s *service) Login(ctx context.Context, input account.Credentials) (account
 		return account.TokenPair{}, err
 	}
 	session := account.Session{ID: pair.SessionID, UserID: user.ID, RefreshHash: identity.Digest(pair.RefreshToken), ExpiresAt: pair.RefreshExpiresAt}
-	if err := s.sessions.Save(ctx, session); err != nil {
+	if err := s.sessions.Save(ctx, session, user.PasswordHash); err != nil {
+		if errors.Is(err, domain.ErrUnauthorized) {
+			return account.TokenPair{}, err
+		}
 		return account.TokenPair{}, fmt.Errorf("%w: persist session", domain.ErrUnavailable)
 	}
 	return pair, nil

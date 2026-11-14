@@ -1,0 +1,107 @@
+name: depeg-stack
+
+x-database-env: &database-env
+  MYSQL_DSN: "depeg:${DEPEG_MYSQL_PASSWORD:?Set DEPEG_MYSQL_PASSWORD in .env.docker}@tcp(mysql:3306)/depeg?charset=utf8mb4&parseTime=true&loc=UTC"
+
+x-go-env: &go-env
+  <<: *database-env
+  JWT_SIGNING_KEY: ${DEPEG_JWT_SIGNING_KEY:?Set DEPEG_JWT_SIGNING_KEY in .env.docker}
+
+x-go-build: &go-build
+  context: .
+  target: api
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: depeg
+      MYSQL_USER: depeg
+      MYSQL_PASSWORD: ${DEPEG_MYSQL_PASSWORD:?Set DEPEG_MYSQL_PASSWORD in .env.docker}
+      MYSQL_ROOT_PASSWORD: ${DEPEG_MYSQL_ROOT_PASSWORD:?Set DEPEG_MYSQL_ROOT_PASSWORD in .env.docker}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql --protocol=TCP -h127.0.0.1 -u\"$$MYSQL_USER\" -D\"$$MYSQL_DATABASE\" -e 'SELECT 1' >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  migrate:
+    build: *go-build
+    command: ["/usr/local/bin/depeg-migrate"]
+    environment: *go-env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: *go-build
+    environment:
+      <<: *go-env
+      HTTP_ADDRESS: "0.0.0.0:8080"
+      REDIS_ADDRESS: "redis:6379"
+      SMTP_ADDRESS: ${SMTP_ADDRESS:-}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TLS_MODE: ${SMTP_TLS_MODE:-tls}
+    ports:
+      - "127.0.0.1:${DEPEG_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "3", "-O", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  collector:
+    build:
+      context: .
+      target: collector
+      additional_contexts:
+        collector_src: ${DEPEG_PYTHON_DIR:-../Depeg-future}
+    environment:
+      <<: *database-env
+      COLLECTOR_BOOTSTRAP_FROM: ${COLLECTOR_BOOTSTRAP_FROM:-}
+      COLLECTOR_PROXY: ${COLLECTOR_PROXY:-}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        start="$${COLLECTOR_BOOTSTRAP_FROM:-$$(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:00Z)}"
+        set -- --loop --import-bin /usr/local/bin/depeg-import \
+          --pending-dir /var/lib/depeg/collector-pending --bootstrap-from "$$start"
+        if [ -n "$$COLLECTOR_PROXY" ]; then
+          set -- "$$@" --proxy "$$COLLECTOR_PROXY"
+        fi
+        exec python -m src.collect_ohlcv "$$@"
+    volumes:
+      - collector-pending:/var/lib/depeg/collector-pending
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  collector-pending:

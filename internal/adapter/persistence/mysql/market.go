@@ -38,6 +38,21 @@ func (r *marketRepository) ListAssets(ctx context.Context) ([]market.Asset, erro
 	return result, nil
 }
 
+func (r *marketRepository) LatestOpenTime(ctx context.Context, assetID, source string, interval time.Duration) (time.Time, bool, error) {
+	db, err := r.database.Session(ctx)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	var row candleModel
+	result := db.Select("open_time").
+		Where("asset_id = ? AND source = ? AND interval_seconds = ?", assetID, source, int64(interval/time.Second)).
+		Order("open_time DESC").Limit(1).Find(&row)
+	if result.Error != nil {
+		return time.Time{}, false, translate(result.Error)
+	}
+	return row.OpenTime.UTC(), result.RowsAffected != 0, nil
+}
+
 type marketCursor struct {
 	Time   time.Time `json:"time"`
 	Source string    `json:"source"`
@@ -94,15 +109,25 @@ func (r *marketRepository) UpsertCandles(ctx context.Context, candles []market.C
 	if len(candles) == 0 {
 		return nil
 	}
-	db, err := r.database.Session(ctx)
-	if err != nil {
-		return err
-	}
-	rows := make([]candleModel, 0, len(candles))
-	for _, c := range candles {
-		rows = append(rows, candleModel{AssetID: c.AssetID, Source: c.Source, IntervalSeconds: int64(c.Interval / time.Second), OpenTime: c.Time.UTC(), Open: c.Open, High: c.High, Low: c.Low, Close: c.Close, Volume: c.Volume, Quality: c.Quality, SourceTime: c.SourceTime, RawValues: c.RawValues})
-	}
-	return translate(db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "asset_id"}, {Name: "source"}, {Name: "interval_seconds"}, {Name: "open_time"}}, DoUpdates: clause.AssignmentColumns([]string{"open", "high", "low", "close", "volume", "quality", "source_time", "raw_values", "updated_at"})}).CreateInBatches(rows, 200).Error)
+	return r.database.Transaction(ctx, func(database Database) error {
+		db, err := database.Session(ctx)
+		if err != nil {
+			return err
+		}
+		rows := make([]candleModel, 0, len(candles))
+		for _, c := range candles {
+			rows = append(rows, candleModel{AssetID: c.AssetID, Source: c.Source, IntervalSeconds: int64(c.Interval / time.Second), OpenTime: c.Time.UTC(), Open: c.Open, High: c.High, Low: c.Low, Close: c.Close, Volume: c.Volume, Quality: c.Quality, SourceTime: c.SourceTime, RawValues: c.RawValues})
+		}
+		conflict := clause.OnConflict{
+			Columns:   []clause.Column{{Name: "asset_id"}, {Name: "source"}, {Name: "interval_seconds"}, {Name: "open_time"}},
+			DoUpdates: clause.AssignmentColumns([]string{"open", "high", "low", "close", "volume", "quality", "source_time", "raw_values", "updated_at"}),
+		}
+		return writeMarketStreams(db, rows, 200, func(row candleModel) (streamKey, time.Time) {
+			return streamKey{AssetID: row.AssetID, Kind: "ohlc", Source: row.Source, IntervalSeconds: row.IntervalSeconds}, row.OpenTime
+		}, func(batch []candleModel) error {
+			return translate(db.Clauses(conflict).Create(&batch).Error)
+		})
+	})
 }
 func (r *marketRepository) Import(ctx context.Context, a market.Asset, candles []market.Candle) error {
 	return r.database.Transaction(ctx, func(database Database) error {

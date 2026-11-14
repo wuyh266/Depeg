@@ -20,7 +20,10 @@ import (
 )
 
 type Handlers interface {
+	SendRegistrationCode(*gin.Context)
 	Register(*gin.Context)
+	RequestPasswordReset(*gin.Context)
+	ResetPassword(*gin.Context)
 	Login(*gin.Context)
 	Refresh(*gin.Context)
 	Logout(*gin.Context)
@@ -54,6 +57,12 @@ func respond(c *gin.Context, status int, data any) {
 func Failure(c *gin.Context, err error) {
 	status, code, message := 500, "internal_error", "Unable to complete this request"
 	switch {
+	case errors.Is(err, auth.ErrInvalidEmailCode):
+		status, code, message = 400, "invalid_email_code", "Invalid or expired email code"
+	case errors.Is(err, auth.ErrEmailCodeCooldown):
+		status, code, message = 429, "email_code_cooldown", "Wait before requesting another code"
+	case errors.Is(err, auth.ErrEmailSendLimit):
+		status, code, message = 429, "email_send_limit", "Too many requests for email codes"
 	case errors.Is(err, domain.ErrInvalid):
 		status, code, message = 400, "invalid_request", "Invalid request parameters"
 	case errors.Is(err, domain.ErrUnauthorized):
@@ -67,6 +76,13 @@ func Failure(c *gin.Context, err error) {
 	}
 	if status == 401 {
 		c.Header("WWW-Authenticate", "Bearer")
+	}
+	if status == 429 {
+		retryAfter := auth.EmailCodeCooldown
+		if errors.Is(err, auth.ErrEmailSendLimit) {
+			retryAfter = auth.EmailSendWindow
+		}
+		c.Header("Retry-After", strconv.Itoa(int(retryAfter/time.Second)))
 	}
 	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"code": code, "message": message}, "request_id": c.GetString("request_id")})
 }
@@ -88,8 +104,44 @@ func decode(c *gin.Context, out any) bool {
 	}
 	return true
 }
+func sendEmailCode(c *gin.Context, send func(context.Context, string, string) error) {
+	c.Header("Cache-Control", "no-store")
+	var input struct {
+		Email string `json:"email" binding:"required"`
+	}
+	if !decode(c, &input) {
+		return
+	}
+	if err := send(c.Request.Context(), input.Email, c.RemoteIP()); err != nil {
+		Failure(c, err)
+		return
+	}
+	c.Status(204)
+}
+
+func (h *handlers) SendRegistrationCode(c *gin.Context) {
+	sendEmailCode(c, h.auth.SendRegistrationCode)
+}
+
+func (h *handlers) RequestPasswordReset(c *gin.Context) {
+	sendEmailCode(c, h.auth.RequestPasswordReset)
+}
+
+func (h *handlers) ResetPassword(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	var input auth.PasswordReset
+	if !decode(c, &input) {
+		return
+	}
+	if err := h.auth.ResetPassword(c.Request.Context(), input); err != nil {
+		Failure(c, err)
+		return
+	}
+	c.Status(204)
+}
+
 func (h *handlers) Register(c *gin.Context) {
-	var input auth.Credentials
+	var input auth.Registration
 	if !decode(c, &input) {
 		return
 	}

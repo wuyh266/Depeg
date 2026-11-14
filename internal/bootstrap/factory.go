@@ -5,6 +5,7 @@ package bootstrap
 import (
 	"depeg.local/platform/internal/adapter/cache/redis"
 	"depeg.local/platform/internal/adapter/dataset/coingecko"
+	"depeg.local/platform/internal/adapter/email"
 	httpserver "depeg.local/platform/internal/adapter/http"
 	"depeg.local/platform/internal/adapter/http/handler"
 	"depeg.local/platform/internal/adapter/http/middleware"
@@ -40,11 +41,14 @@ type Factory interface {
 	Tokens(settings config.JWT) port.TokenManager
 	Passwords() port.PasswordHasher
 	Sessions(database mysql.Database) port.SessionStore
+	RegistrationCodes(database mysql.Database) port.EmailCodeStore
+	PasswordResetCodes(database mysql.Database) port.EmailCodeStore
+	EmailCodeMailer(settings config.SMTP) port.EmailCodeMailer
 	TrendCache(client port.RedisClient) port.TrendCache
 	Leases(client port.RedisClient) port.LeaseStore
 	Pipeline(settings config.Python, logger port.Logger) port.PipelineGateway
-	AuthService(users port.UserRepository, passwords port.PasswordHasher, tokens port.TokenManager, sessions port.SessionStore) port.AuthService
-	MarketService(repository port.MarketRepository,assets port.AssetCache,logger port.Logger) port.MarketService
+	AuthService(users port.UserRepository, passwords port.PasswordHasher, tokens port.TokenManager, sessions port.SessionStore, registrationCodes, resetCodes port.EmailCodeStore, mailer port.EmailCodeMailer, signingKey string) port.AuthService
+	MarketService(repository port.MarketRepository, assets port.AssetCache, logger port.Logger) port.MarketService
 	MonitorService(repository port.MonitorRepository, market port.MarketService) port.MonitorService
 	RiskService(repository port.RiskRepository) port.RiskService
 	Ingestion(market port.MarketRepository, risks port.RiskRepository, jobs port.JobRepository, leases port.LeaseStore, pipeline port.PipelineGateway, logger port.Logger) port.IngestionService
@@ -116,6 +120,18 @@ func (*factory) Sessions(database mysql.Database) port.SessionStore {
 	return mysql.NewSessionStore(database)
 }
 
+func (*factory) RegistrationCodes(database mysql.Database) port.EmailCodeStore {
+	return mysql.NewRegistrationCodes(database)
+}
+
+func (*factory) PasswordResetCodes(database mysql.Database) port.EmailCodeStore {
+	return mysql.NewPasswordResetCodes(database)
+}
+
+func (*factory) EmailCodeMailer(settings config.SMTP) port.EmailCodeMailer {
+	return email.New(settings)
+}
+
 func (*factory) TrendCache(client port.RedisClient) port.TrendCache {
 	return redis.NewTrendCache(client)
 }
@@ -128,12 +144,12 @@ func (*factory) Pipeline(settings config.Python, logger port.Logger) port.Pipeli
 	return python.New(settings, logger)
 }
 
-func (*factory) AuthService(users port.UserRepository, passwords port.PasswordHasher, tokens port.TokenManager, sessions port.SessionStore) port.AuthService {
-	return authservice.New(users, passwords, tokens, sessions)
+func (*factory) AuthService(users port.UserRepository, passwords port.PasswordHasher, tokens port.TokenManager, sessions port.SessionStore, registrationCodes, resetCodes port.EmailCodeStore, mailer port.EmailCodeMailer, signingKey string) port.AuthService {
+	return authservice.New(users, passwords, tokens, sessions, registrationCodes, resetCodes, mailer, signingKey)
 }
 
-func (*factory) MarketService(repository port.MarketRepository,assetscache port.AssetCache,logger port.Logger) port.MarketService {
-	return marketservice.New(repository,assetscache,logger)
+func (*factory) MarketService(repository port.MarketRepository, assetscache port.AssetCache, logger port.Logger) port.MarketService {
+	return marketservice.New(repository, assetscache, logger)
 }
 
 func (*factory) RiskService(repository port.RiskRepository) port.RiskService {
