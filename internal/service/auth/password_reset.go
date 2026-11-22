@@ -21,7 +21,7 @@ func (s *service) RequestPasswordReset(ctx context.Context, rawEmail, source str
 		return err
 	}
 	if s.mailer == nil {
-		return domain.ErrUnavailable
+		return account.ErrEmailNotConfigured
 	}
 
 	// Cap outstanding delivery work per process before looking up the account.

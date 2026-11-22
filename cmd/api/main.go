@@ -56,7 +56,10 @@ func run(ctx context.Context, factory bootstrap.Factory) error {
 	sessions := factory.Sessions(database)
 	registrationCodes := factory.RegistrationCodes(database)
 	resetCodes := factory.PasswordResetCodes(database)
-	mailer := factory.EmailCodeMailer(settings.SMTP)
+	mailer := factory.EmailCodeMailer(settings.SMTP, logger)
+	if mailer == nil {
+		logger.Info(ctx, "SMTP is not configured; verification email delivery is disabled")
+	}
 	authentication := factory.AuthService(users, passwords, tokens, sessions, registrationCodes, resetCodes, mailer, settings.JWT.SigningKey)
 	trends := factory.MarketService(markets, assetCache, logger)
 	monitors := factory.MonitorService(factory.MonitorRepository(database), trends)

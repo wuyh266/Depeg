@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"depeg.local/platform/internal/domain"
 	"errors"
 	"time"
 )
@@ -14,9 +15,11 @@ const (
 )
 
 var (
-	ErrInvalidEmailCode  = errors.New("invalid or expired email code")
-	ErrEmailCodeCooldown = errors.New("email code was sent recently")
-	ErrEmailSendLimit    = errors.New("email send limit reached")
+	ErrEmailNotConfigured  = errors.Join(domain.ErrUnavailable, errors.New("email is not configured"))
+	ErrEmailDeliveryFailed = errors.Join(domain.ErrUnavailable, errors.New("email delivery failed"))
+	ErrInvalidEmailCode    = errors.New("invalid or expired email code")
+	ErrEmailCodeCooldown   = errors.New("email code was sent recently")
+	ErrEmailSendLimit      = errors.New("email send limit reached")
 )
 
 type User struct {

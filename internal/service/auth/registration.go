@@ -73,7 +73,7 @@ func (s *service) SendRegistrationCode(ctx context.Context, rawEmail, source str
 		return err
 	}
 	if s.mailer == nil {
-		return domain.ErrUnavailable
+		return account.ErrEmailNotConfigured
 	}
 	code, err := newEmailCode()
 	if err != nil {

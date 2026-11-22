@@ -57,6 +57,10 @@ func respond(c *gin.Context, status int, data any) {
 func Failure(c *gin.Context, err error) {
 	status, code, message := 500, "internal_error", "Unable to complete this request"
 	switch {
+	case errors.Is(err, auth.ErrEmailNotConfigured):
+		status, code, message = 503, "email_not_configured", "Email service is not configured"
+	case errors.Is(err, auth.ErrEmailDeliveryFailed):
+		status, code, message = 503, "email_delivery_failed", "Email delivery failed; check SMTP configuration and delivery logs"
 	case errors.Is(err, auth.ErrInvalidEmailCode):
 		status, code, message = 400, "invalid_email_code", "Invalid or expired email code"
 	case errors.Is(err, auth.ErrEmailCodeCooldown):

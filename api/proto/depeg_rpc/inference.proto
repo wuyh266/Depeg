@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package depeg.inference.v1;
+option go_package = "depeg.local/platform/internal/adapter/pipeline/python/rpc";
+
+// Internal unary inference API. Candles contain confirmed, closed OKX USDC/USDT minutes.
+service InferenceService {
+  rpc Predict(PredictRequest) returns (PredictResponse);
+}
+
+message Candle {
+  int64 open_time_seconds = 1;
+  string open = 2;
+  string high = 3;
+  string low = 4;
+  string close = 5;
+  string volume = 6;
+}
+
+message PredictRequest {
+  string schema_version = 1;
+  string asset_id = 2;
+  string symbol = 3;
+  string source = 4;
+  repeated Candle candles = 5;
+  // Explicit windows; the server must have a supplied model for every requested window.
+  repeated string horizons = 6;
+}
+
+message Prediction {
+  string asset_id = 1;
+  string symbol = 2;
+  string source = 3;
+  string observed_at = 4;
+  string reference_open_time = 5;
+  string last_input_open_time = 6;
+  string horizon = 7;
+  // Offsets from observed_at; prediction interval is [start,end).
+  int32 horizon_start_minutes = 8;
+  int32 horizon_end_minutes = 9;
+  string prediction_start = 10;
+  string prediction_end = 11;
+  optional double depeg_minute_ratio = 12;
+  string model_version = 13;
+  string feature_version = 14;
+  string label_version = 15;
+  string quality = 16;
+}
+
+message PredictResponse {
+  string schema_version = 1;
+  string generated_at = 2;
+  repeated Prediction predictions = 3;
+}

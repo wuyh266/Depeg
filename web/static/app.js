@@ -35,6 +35,9 @@ function toast(message) {
 class APIError extends Error { constructor(message,status=0,code){super(message);this.status=status;this.code=code;} }
 const messages={400:'参数不正确，请检查日期范围、锚定价与阈值。',401:'登录已过期，请重新登录。',403:'当前访问来源未获允许，请通过后端服务地址打开网页。',404:'没有找到对应记录。',409:'记录已存在或检测规则发生变化，请刷新后重试。',503:'数据库或服务暂不可用。请确认 MySQL 已启动，并执行过最新数据库迁移。'};
 const verificationMessages={
+
+  email_not_configured:'发信服务尚未配置，请联系管理员填写 SMTP 配置并重启服务。',
+  email_delivery_failed:'邮件发送失败，请稍后重试；管理员可查看 SMTP 发信日志，检查授权码、端口和加密方式。',
   invalid_email_code:'验证码不正确、已过期或已达到尝试上限，请核对验证码或重新发送。',
   email_code_cooldown:'验证码发送间隔为 60 秒，请稍后再试。',
   email_send_limit:'验证码请求过于频繁，请稍后再试。'
