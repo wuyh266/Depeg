@@ -62,6 +62,18 @@ type SMTP struct {
 	TLSMode  string `yaml:"tls_mode"`
 }
 
+// ResolvedTLSMode follows the standard implicit-TLS port; other ports use STARTTLS.
+func (s SMTP) ResolvedTLSMode() string {
+	if s.TLSMode != "" && s.TLSMode != "auto" {
+		return s.TLSMode
+	}
+	_, port, _ := net.SplitHostPort(s.Address)
+	if port == "465" {
+		return "tls"
+	}
+	return "starttls"
+}
+
 func (s *SMTP) validate() error {
 	if s.Address == "" {
 		if s.Username != "" || s.Password != "" || s.From != "" {
@@ -85,13 +97,17 @@ func (s *SMTP) validate() error {
 		return fmt.Errorf("SMTP_FROM must be a single email address")
 	}
 	switch s.TLSMode {
+	case "", "auto":
 	case "tls", "starttls":
+		if (port == "465" && s.TLSMode == "starttls") || (port == "587" && s.TLSMode == "tls") {
+			return fmt.Errorf("SMTP_TLS_MODE does not match port: use tls for 465 or starttls for 587 (or auto)")
+		}
 	case "none":
 		if ip := net.ParseIP(host); !ip.IsLoopback() || s.Username != "" {
 			return fmt.Errorf("SMTP_TLS_MODE=none requires a loopback IP and no SMTP credentials")
 		}
 	default:
-		return fmt.Errorf("SMTP_TLS_MODE must be tls, starttls, or none")
+		return fmt.Errorf("SMTP_TLS_MODE must be auto, tls, starttls, or none")
 	}
 	return nil
 }
@@ -134,7 +150,7 @@ func load(ctx context.Context, databaseOnly bool) (Settings, error) {
 		HTTP:  HTTP{Address: "127.0.0.1:8080", ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, ShutdownTimeout: 15 * time.Second},
 		MySQL: MySQL{MaxOpenConns: 20, MaxIdleConns: 5, ConnMaxLifetime: 30 * time.Minute},
 		JWT:   JWT{Issuer: "depeg-platform", Audience: "depeg-web", AccessTTL: 15 * time.Minute, RefreshTTL: 7 * 24 * time.Hour},
-		SMTP:  SMTP{TLSMode: "tls"},
+		SMTP:  SMTP{TLSMode: "auto"},
 		Log:   Log{Level: "info"},
 		Redis: Redis{Timeout: 300 * time.Millisecond},
 	}

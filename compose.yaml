@@ -58,7 +58,7 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM: ${SMTP_FROM:-}
-      SMTP_TLS_MODE: ${SMTP_TLS_MODE:-tls}
+      SMTP_TLS_MODE: ${SMTP_TLS_MODE:-auto}
     ports:
       - "127.0.0.1:${DEPEG_PORT:-8080}:8080"
     healthcheck:

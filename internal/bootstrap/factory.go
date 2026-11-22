@@ -43,7 +43,7 @@ type Factory interface {
 	Sessions(database mysql.Database) port.SessionStore
 	RegistrationCodes(database mysql.Database) port.EmailCodeStore
 	PasswordResetCodes(database mysql.Database) port.EmailCodeStore
-	EmailCodeMailer(settings config.SMTP) port.EmailCodeMailer
+	EmailCodeMailer(settings config.SMTP, logger port.Logger) port.EmailCodeMailer
 	TrendCache(client port.RedisClient) port.TrendCache
 	Leases(client port.RedisClient) port.LeaseStore
 	Pipeline(settings config.Python, logger port.Logger) port.PipelineGateway
@@ -128,8 +128,8 @@ func (*factory) PasswordResetCodes(database mysql.Database) port.EmailCodeStore 
 	return mysql.NewPasswordResetCodes(database)
 }
 
-func (*factory) EmailCodeMailer(settings config.SMTP) port.EmailCodeMailer {
-	return email.New(settings)
+func (*factory) EmailCodeMailer(settings config.SMTP, logger port.Logger) port.EmailCodeMailer {
+	return email.New(settings, logger)
 }
 
 func (*factory) TrendCache(client port.RedisClient) port.TrendCache {

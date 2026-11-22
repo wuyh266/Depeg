@@ -154,7 +154,7 @@
             }
           },
           "503": {
-            "description": "SMTP or MySQL unavailable",
+            "description": "email_not_configured: SMTP is not configured; email_delivery_failed: delivery rejected or failed (details in sanitized server logs); unavailable: database/dependency unavailable",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }
@@ -258,7 +258,7 @@
             }
           },
           "503": {
-            "description": "Email service or database unavailable",
+            "description": "email_not_configured: SMTP is not configured; unavailable: database/dependency unavailable. Accepted reset requests do not disclose account existence or background delivery results; SMTP failures are logged server-side.",
             "content": {
               "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
             }

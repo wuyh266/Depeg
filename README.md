@@ -2,6 +2,8 @@
 
 DG Transformer 已补充离线 JSON 交付校验命令，见 [模型联调说明](docs/dg-inference-handoff.md)。真实模型验收和网站风险服务接入仍待完成。
 
+2026-11-21：邮件新增 PLAIN/LOGIN 兼容、自动 TLS 端口选择和脱敏发送日志，见[邮件排障](docs/email-troubleshooting.md)。Go → Python gRPC 已完成独立联通验证，见[gRPC 方案与运行方法](docs/grpc-inference.md)。
+
 当前版本包含由 Go 服务直接提供的网页、Gin + GORM 后端、JWT 登录、MySQL 行情查询，以及按账号保存的监测阈值和历史检测记录。MySQL 连接信息在本地 .env 中配置。启动网站无需 Node.js 或独立前端服务。
 
 已实现配置读取、结构化日志、HTTP 启动与关闭、邮箱验证码注册、用户名密码登录、JWT 验证、MySQL 会话持久化、刷新轮换与登出、稳定币列表、历史趋势查询、CSV 校验与事务导入、显式数据库迁移。
@@ -64,10 +66,10 @@ SMTP_ADDRESS=smtp.example.com:465
 SMTP_USERNAME=sender@example.com
 SMTP_PASSWORD=your-smtp-authorization-code
 SMTP_FROM=sender@example.com
-SMTP_TLS_MODE=tls
+SMTP_TLS_MODE=auto
 ```
 
-`SMTP_FROM` 默认使用 `SMTP_USERNAME`。若服务商要求使用 587 端口的 STARTTLS，将 `SMTP_TLS_MODE` 改为 `starttls`。直接运行 API 时，可用 `127.0.0.1` 上的无凭据测试收件服务配合 `SMTP_TLS_MODE=none`。Docker 通过 `docker compose --env-file .env.docker up -d --build` 重建服务并运行迁移。未填写 `SMTP_ADDRESS` 时，已有账号可登录，新账号暂时无法接收验证码。
+`SMTP_FROM` 默认使用 `SMTP_USERNAME`。`auto` 会对 465 端口使用隐式 TLS，其他端口使用 STARTTLS；也可明确设置 `tls` 或 `starttls`。常见端口与加密方式冲突时会在启动时给出说明。认证按服务器声明选择 PLAIN 或 LOGIN，凭据必须在 TLS 中发送。直接运行 API 时，可用 `127.0.0.1` 上的无凭据测试收件服务配合 `SMTP_TLS_MODE=none`。Docker 通过 `docker compose --env-file .env.docker up -d --build` 重建服务并运行迁移。未填写 `SMTP_ADDRESS` 时，已有账号可登录，发验证码会明确返回 `email_not_configured`。
 
 运行迁移后，在注册页填邮箱并点「发送验证码」。验证码为 6 位数字，10 分钟有效，最多尝试 5 次，同一邮箱每 60 秒可重发。服务器按连接来源限制 10 分钟内发送 10 次，部署在反向代理后时，来自同一个代理地址的请求共享额度。验证成功后，后端在同一个事务里创建账号并让验证码失效。每个邮箱地址可注册一个账号，邮箱域名统一转小写，@ 前的部分保留原大小写。前端随后用用户名和密码登录。
 

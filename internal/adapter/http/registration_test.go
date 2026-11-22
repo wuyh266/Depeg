@@ -167,3 +167,13 @@ func TestExistingAccountLoginDuringMailFailure(t *testing.T) {
 	credentials := map[string]string{"username": "existing", "password": "correct-password"}
 	status(t, request(t, f.handler, "POST", "/api/v1/auth/login", "", credentials), http.StatusOK)
 }
+
+func TestEmailDeliveryFailureIsNotReportedAsDatabaseFailure(t *testing.T) {
+	f := setup(t)
+	f.mailer.err = auth.ErrEmailDeliveryFailed
+	r := request(t, f.handler, "POST", "/api/v1/auth/register/email-code", "", map[string]string{"email": "delivery@example.test"})
+	status(t, r, http.StatusServiceUnavailable)
+	if !strings.Contains(r.Body.String(), `"code":"email_delivery_failed"`) {
+		t.Fatal("missing SMTP-specific error code")
+	}
+}
